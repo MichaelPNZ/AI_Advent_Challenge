@@ -110,7 +110,8 @@ class ChatComponentImpl(
                 onSuccess = { reply ->
                     ConversationMessage(
                         author = MessageAuthor.Agent,
-                        text = reply
+                        text = reply.formatForDisplay(),
+                        structured = reply
                     )
                 },
                 onFailure = { throwable ->

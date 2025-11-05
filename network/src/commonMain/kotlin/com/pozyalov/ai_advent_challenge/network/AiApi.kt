@@ -9,7 +9,7 @@ import com.aallam.openai.client.OpenAI
 class AiApi(
     apiKey: String,
     private val model: ModelId = ModelId("gpt-4o-mini"),
-    private val systemPrompt: String = "Ты дружелюбный ассистент, отвечающий кратко и по делу."
+    private val systemPrompt: String? = null
 ) {
     private val openAiClient = apiKey.takeIf { it.isNotBlank() }?.let { OpenAI(token = it) }
 
@@ -20,7 +20,7 @@ class AiApi(
 
         val sanitized = messages.filter { it.text.isNotBlank() }
         val requestMessages = buildList {
-            if (sanitized.none { it.role == AiRole.System }) {
+            if (!systemPrompt.isNullOrBlank() && sanitized.none { it.role == AiRole.System }) {
                 add(ChatMessage(role = ChatRole.System, content = systemPrompt))
             }
             sanitized.forEach { add(it.toChatMessage()) }
@@ -31,8 +31,8 @@ class AiApi(
                 ChatCompletionRequest(
                     model = model,
                     messages = requestMessages,
-                    maxCompletionTokens = 256,
-                    temperature = 0.6
+                    maxCompletionTokens = 1024,
+                    temperature = 0.2
                 )
             )
 

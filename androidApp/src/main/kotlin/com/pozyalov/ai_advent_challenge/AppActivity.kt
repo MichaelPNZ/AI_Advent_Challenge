@@ -12,11 +12,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowInsetsControllerCompat
 import com.pozyalov.ai_advent_challenge.di.initKoin
+import com.pozyalov.ai_advent_challenge.initLogs
 import org.koin.dsl.module
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        initLogs()
         initKoin(
             appModule = module {
                 single<Context> { this@App.applicationContext }

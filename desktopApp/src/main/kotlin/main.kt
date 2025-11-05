@@ -4,10 +4,12 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.pozyalov.ai_advent_challenge.App
 import com.pozyalov.ai_advent_challenge.di.initKoin
+import com.pozyalov.ai_advent_challenge.initLogs
 import org.koin.dsl.module
 import java.awt.Dimension
 
 fun main() = application {
+    initLogs()
     initKoin(appModule = module {})
 
     Window(

@@ -1,8 +1,10 @@
 package com.pozyalov.ai_advent_challenge.chat
 
-import com.pozyalov.ai_advent_challenge.network.AiApi
-import com.pozyalov.ai_advent_challenge.network.AiMessage
-import com.pozyalov.ai_advent_challenge.network.AiRole
+import com.pozyalov.ai_advent_challenge.appLog
+import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
+import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
+import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
+import com.pozyalov.ai_advent_challenge.chat.domain.GenerateChatReplyUseCase
 import kotlin.random.Random
 
 enum class MessageAuthor {
@@ -19,33 +21,49 @@ data class ConversationMessage(
     val id: Long = Random.nextLong(),
     val author: MessageAuthor,
     val text: String,
+    val structured: AgentStructuredResponse? = null,
     val error: ConversationError? = null
 ) {
     val isError: Boolean get() = error != null
 }
 
 class ChatAgent(
-    private val api: AiApi
+    private val generateReply: GenerateChatReplyUseCase
 ) {
-    val isConfigured: Boolean get() = api.isConfigured
+    val isConfigured: Boolean get() = generateReply.isConfigured
 
-    suspend fun reply(history: List<ConversationMessage>): Result<String> {
-        val requestHistory = history
+    suspend fun reply(history: List<ConversationMessage>): Result<AgentStructuredResponse> {
+        val domainHistory = history
             .filterNot { it.error != null && it.author == MessageAuthor.Agent }
-            .map { it.toAiMessage() }
+            .map { it.toDomainMessage() }
 
-        return api.chatCompletion(requestHistory)
+        val lastUserMessagePreview = history
+            .lastOrNull { it.author == MessageAuthor.User }
+            ?.text
+            ?.take(120)
+
+        appLog(
+            "Sending request with ${domainHistory.size} messages. Last user message preview: ${
+                lastUserMessagePreview.orEmpty()
+            }"
+        )
+
+        return generateReply(domainHistory)
+            .onSuccess { appLog("Parsed structured response: $it") }
+            .onFailure { failure ->
+                appLog("Failed to get structured response: ${failure.message.orEmpty()}")
+            }
     }
 
     fun close() {
-        api.close()
+        generateReply.close()
     }
 
-    private fun ConversationMessage.toAiMessage(): AiMessage {
+    private fun ConversationMessage.toDomainMessage(): ChatMessage {
         val role = when (author) {
-            MessageAuthor.User -> AiRole.User
-            MessageAuthor.Agent -> AiRole.Assistant
+            MessageAuthor.User -> ChatRole.User
+            MessageAuthor.Agent -> ChatRole.Assistant
         }
-        return AiMessage(role = role, text = text)
+        return ChatMessage(role = role, content = text)
     }
 }
