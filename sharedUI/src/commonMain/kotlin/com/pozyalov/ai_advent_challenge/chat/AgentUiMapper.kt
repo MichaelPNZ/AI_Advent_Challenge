@@ -7,7 +7,9 @@ fun AgentStructuredResponse.formatForDisplay(): String {
     val sections = buildList {
         add(title.ifBlank { "(без заголовка)" })
         if (summary.isNotBlank()) add(summary)
-        add("Уверенность: ${confidence.formatDecimal()}")
+        if (confidence > 0.0) {
+            add("Уверенность: ${confidence.formatDecimal()}")
+        }
     }
     return sections.joinToString(separator = "\n\n")
 }
