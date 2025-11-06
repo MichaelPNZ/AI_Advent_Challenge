@@ -3,15 +3,29 @@ package com.pozyalov.ai_advent_challenge.network
 import com.aallam.openai.api.chat.ChatCompletionRequest
 import com.aallam.openai.api.chat.ChatMessage
 import com.aallam.openai.api.chat.ChatRole
+import com.aallam.openai.api.chat.ChatResponseFormat
+import com.aallam.openai.api.chat.Effort
+import com.aallam.openai.api.logging.LogLevel
 import com.aallam.openai.api.model.ModelId
+import com.aallam.openai.client.LoggingConfig
 import com.aallam.openai.client.OpenAI
+import com.aallam.openai.client.ProxyConfig
 
 class AiApi(
     apiKey: String,
-    private val model: ModelId = ModelId("gpt-4o-mini"),
-    private val systemPrompt: String? = null
+    private val model: ModelId = ModelId("gpt-5-mini"),
+    private val systemPrompt: String? = null,
+    private val proxy: ProxyConfig? = null,
 ) {
-    private val openAiClient = apiKey.takeIf { it.isNotBlank() }?.let { OpenAI(token = it) }
+    private val openAiClient = apiKey.takeIf { it.isNotBlank() }?.let {
+        OpenAI(
+            token = it,
+            logging = LoggingConfig(
+                logLevel = LogLevel.Body
+            ),
+            proxy = proxy
+        )
+    }
 
     val isConfigured: Boolean get() = openAiClient != null
 
@@ -31,23 +45,32 @@ class AiApi(
                 ChatCompletionRequest(
                     model = model,
                     messages = requestMessages,
-                    maxCompletionTokens = 1024,
-                    temperature = 0.2
+                    reasoningEffort = DEFAULT_REASONING_EFFORT,
+                    temperature = 1.0,
+                    maxCompletionTokens = 2048,
+                    responseFormat = ChatResponseFormat.JsonObject,
                 )
             )
 
-            completion.choices
-                .firstOrNull()
-                ?.message
-                ?.content
+            val choice = completion.choices.firstOrNull()
+                ?: error("Model returned no choices")
+
+            val content = choice.message.content
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
-                ?: error("Model did not return a response")
+
+            content ?: error(
+                "Model did not return a response (finish reason: ${choice.finishReason?.value ?: "unknown"})"
+            )
         }
     }
 
     fun close() {
         openAiClient?.close()
+    }
+
+    private companion object {
+        val DEFAULT_REASONING_EFFORT: Effort = Effort("low")
     }
 }
 
