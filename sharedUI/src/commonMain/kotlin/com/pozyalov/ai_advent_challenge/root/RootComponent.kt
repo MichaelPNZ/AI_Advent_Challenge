@@ -8,6 +8,7 @@ import com.arkivanov.decompose.value.Value
 import com.pozyalov.ai_advent_challenge.chat.ChatAgent
 import com.pozyalov.ai_advent_challenge.chat.ChatComponent
 import com.pozyalov.ai_advent_challenge.chat.ChatComponentImpl
+import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import kotlinx.serialization.Serializable
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
@@ -49,7 +50,8 @@ class RootComponentImpl(
             RootComponent.Config.Chat -> RootComponent.Child.Chat(
                 ChatComponentImpl(
                     componentContext = componentContext,
-                    chatAgent = get<ChatAgent>()
+                    chatAgent = get<ChatAgent>(),
+                    chatHistory = get<ChatHistoryDataSource>()
                 )
             )
         }

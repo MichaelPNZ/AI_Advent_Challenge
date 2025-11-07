@@ -5,6 +5,8 @@ package com.pozyalov.ai_advent_challenge.chat
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.aallam.openai.api.model.ModelId
+import com.pozyalov.ai_advent_challenge.appLog
+import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
+import kotlinx.coroutines.withContext
 import kotlin.time.ExperimentalTime
 
 interface ChatComponent {
@@ -37,11 +40,13 @@ interface ChatComponent {
 
 class ChatComponentImpl(
     componentContext: ComponentContext,
-    chatAgent: ChatAgent
+    chatAgent: ChatAgent,
+    chatHistory: ChatHistoryDataSource
 ) : ChatComponent, ComponentContext by componentContext {
 
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob()) + Dispatchers.Main.immediate
     private val agent = chatAgent
+    private val historyStorage = chatHistory
     private val modelOptions: List<LlmModelOption> = LlmModelCatalog.models
 
     private val _model = MutableStateFlow(
@@ -57,6 +62,7 @@ class ChatComponentImpl(
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
 
     init {
+        loadHistory()
         lifecycle.doOnDestroy {
             coroutineScope.cancel()
             agent.close()
@@ -86,6 +92,8 @@ class ChatComponentImpl(
         var shouldSend = false
         var requestHistory: List<ConversationMessage>? = null
         var targetModelId: String? = null
+        var userMessageToPersist: ConversationMessage? = null
+        var errorMessageToPersist: ConversationMessage? = null
 
         _model.update { state ->
             val trimmed = state.input.trim()
@@ -97,15 +105,18 @@ class ChatComponentImpl(
                 author = MessageAuthor.User,
                 text = trimmed
             )
+            userMessageToPersist = userMessage
             val updatedMessages = state.messages + userMessage
 
             if (!agent.isConfigured) {
+                val failureMessage = ConversationMessage(
+                    author = MessageAuthor.Agent,
+                    text = "",
+                    error = ConversationError.MissingApiKey
+                )
+                errorMessageToPersist = failureMessage
                 return@update state.copy(
-                    messages = updatedMessages + ConversationMessage(
-                        author = MessageAuthor.Agent,
-                        text = "",
-                        error = ConversationError.MissingApiKey
-                    ),
+                    messages = updatedMessages + failureMessage,
                     input = "",
                     isSending = false,
                     isConfigured = agent.isConfigured
@@ -123,6 +134,9 @@ class ChatComponentImpl(
                 isConfigured = agent.isConfigured
             )
         }
+
+        userMessageToPersist?.let { persistMessage(it) }
+        errorMessageToPersist?.let { persistMessage(it) }
 
         if (!shouldSend) return
 
@@ -161,6 +175,38 @@ class ChatComponentImpl(
                     isConfigured = agent.isConfigured
                 )
             }
+
+            persistMessage(responseMessage)
+        }
+    }
+
+    private fun loadHistory() {
+        coroutineScope.launch {
+            val cached = runCatching {
+                withContext(Dispatchers.Default) {
+                    historyStorage.loadHistory()
+                }
+            }
+                .onFailure { appLog("Failed to load chat history: ${it.message.orEmpty()}") }
+                .getOrNull()
+                .orEmpty()
+
+            if (cached.isEmpty()) return@launch
+
+            _model.update { state ->
+                if (state.messages.isEmpty()) {
+                    state.copy(messages = cached)
+                } else {
+                    state
+                }
+            }
+        }
+    }
+
+    private fun persistMessage(message: ConversationMessage) {
+        coroutineScope.launch(Dispatchers.Default) {
+            runCatching { historyStorage.saveMessage(message) }
+                .onFailure { appLog("Failed to persist chat message: ${it.message.orEmpty()}") }
         }
     }
 }

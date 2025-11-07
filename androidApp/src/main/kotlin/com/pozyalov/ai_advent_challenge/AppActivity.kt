@@ -11,6 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.room.Room
+import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.data.RoomChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.data.local.ChatDatabase
 import com.pozyalov.ai_advent_challenge.di.initKoin
 import com.pozyalov.ai_advent_challenge.initLogs
 import org.koin.dsl.module
@@ -22,10 +26,23 @@ class App : Application() {
         initKoin(
             appModule = module {
                 single<Context> { this@App.applicationContext }
+                single {
+                    Room.databaseBuilder(
+                        get<Context>(),
+                        ChatDatabase::class.java,
+                        "chat_history.db"
+                    ).fallbackToDestructiveMigration(true)
+                        .build()
+                }
+                single { get<ChatDatabase>().chatMessageDao() }
+                single<ChatHistoryDataSource> {
+                    RoomChatHistoryDataSource(dao = get())
+                }
             }
         )
         instance = this
     }
+
     companion object {
         lateinit var instance: App
             private set
@@ -37,7 +54,7 @@ class AppActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            App(onThemeChanged = { ThemeChanged(it) }) 
+            App(onThemeChanged = { ThemeChanged(it) })
         }
     }
 }

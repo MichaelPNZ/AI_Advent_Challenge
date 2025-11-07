@@ -11,6 +11,8 @@ dependencies {
     implementation(project(":sharedUI"))
     implementation(compose.ui)
     implementation(libs.koin.core)
+    implementation(libs.room.runtime)
+    implementation(libs.sqlite.bundled)
 }
 
 compose.desktop {

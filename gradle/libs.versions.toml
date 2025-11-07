@@ -24,6 +24,7 @@ ksp = "2.2.21-2.0.4"
 kstore = "1.0.0"
 buildKonfig = "0.15.1"
 openaiClient = "4.0.1"
+sqliteBundled = "2.5.2"
 
 [libraries]
 
@@ -60,6 +61,7 @@ kstore = { module = "io.github.xxfast:kstore", version.ref = "kstore" }
 kstore-file = { module = "io.github.xxfast:kstore-file", version.ref = "kstore" }
 kstore-storage = { module = "io.github.xxfast:kstore-storage", version.ref = "kstore" }
 openai-client = { module = "com.aallam.openai:openai-client", version.ref = "openaiClient" }
+sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqliteBundled" }
 
 [plugins]
 
