@@ -6,7 +6,3 @@ import io.github.aakira.napier.Napier
 fun initLogs() {
     Napier.base(DebugAntilog())
 }
-
-fun appLog(message: String) {
-    Napier.d(message = "AI🚀 : $message")
-}

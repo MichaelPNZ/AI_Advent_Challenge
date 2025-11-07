@@ -69,6 +69,8 @@ kotlin {
             implementation(libs.openai.client)
             implementation(project(":core:database"))
             implementation(project(":core:network"))
+            implementation(project(":features:chatlist"))
+            implementation(project(":features:chat"))
         }
 
         commonTest.dependencies {

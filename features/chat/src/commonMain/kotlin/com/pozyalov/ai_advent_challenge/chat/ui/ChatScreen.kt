@@ -1,16 +1,17 @@
 @file:OptIn(ExperimentalTime::class)
 
-package com.pozyalov.ai_advent_challenge.chat
+package com.pozyalov.ai_advent_challenge.chat.ui
 
-import ai_advent_challenge.sharedui.generated.resources.Res
-import ai_advent_challenge.sharedui.generated.resources.chat_api_key_missing
-import ai_advent_challenge.sharedui.generated.resources.chat_empty_state
-import ai_advent_challenge.sharedui.generated.resources.chat_error_generic
-import ai_advent_challenge.sharedui.generated.resources.chat_input_placeholder
-import ai_advent_challenge.sharedui.generated.resources.chat_send
-import ai_advent_challenge.sharedui.generated.resources.chat_title
-import ai_advent_challenge.sharedui.generated.resources.ic_dark_mode
-import ai_advent_challenge.sharedui.generated.resources.ic_light_mode
+import ai_advent_challenge.features.chat.generated.resources.Res
+import ai_advent_challenge.features.chat.generated.resources.chat_api_key_missing
+import ai_advent_challenge.features.chat.generated.resources.chat_empty_state
+import ai_advent_challenge.features.chat.generated.resources.chat_error_generic
+import ai_advent_challenge.features.chat.generated.resources.chat_input_placeholder
+import ai_advent_challenge.features.chat.generated.resources.chat_send
+import ai_advent_challenge.features.chat.generated.resources.chat_title
+import ai_advent_challenge.features.chat.generated.resources.ic_dark_mode
+import ai_advent_challenge.features.chat.generated.resources.ic_light_mode
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -60,8 +62,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.pozyalov.ai_advent_challenge.chat.component.ChatComponent
+import com.pozyalov.ai_advent_challenge.chat.component.ConversationError
+import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
+import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
-import com.pozyalov.ai_advent_challenge.theme.LocalThemeIsDark
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
@@ -71,7 +76,11 @@ import kotlin.time.ExperimentalTime
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun ChatScreen(component: ChatComponent) {
+fun ChatScreen(
+    component: ChatComponent,
+    isDark: Boolean,
+    onToggleTheme: () -> Unit,
+) {
     val model by component.model.collectAsState()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
@@ -99,23 +108,32 @@ fun ChatScreen(component: ChatComponent) {
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing),
         topBar = {
-            val themeState = LocalThemeIsDark.current
-            val isDark by themeState
             val icon = if (isDark) Res.drawable.ic_light_mode else Res.drawable.ic_dark_mode
             CenterAlignedTopAppBar(
                 navigationIcon = {
-                    ModelMenuButton(
-                        models = model.availableModels,
-                        selectedModelId = model.selectedModelId,
-                        onSelect = component::onModelSelected
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(onClick = component::onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null
+                            )
+                        }
+                        ModelMenuButton(
+                            models = model.availableModels,
+                            selectedModelId = model.selectedModelId,
+                            onSelect = component::onModelSelected
+                        )
+                    }
                 },
                 title = { Text(text = stringResource(Res.string.chat_title)) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
                 actions = {
-                    IconButton(onClick = { themeState.value = !isDark }) {
+                    IconButton(onClick = onToggleTheme) {
                         Icon(
                             imageVector = vectorResource(icon),
                             contentDescription = null

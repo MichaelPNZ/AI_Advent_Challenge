@@ -1,13 +1,13 @@
 @file:OptIn(ExperimentalTime::class)
 
-package com.pozyalov.ai_advent_challenge.chat
+package com.pozyalov.ai_advent_challenge.chat.component
 
 import com.aallam.openai.api.model.ModelId
-import com.pozyalov.ai_advent_challenge.appLog
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
 import com.pozyalov.ai_advent_challenge.chat.domain.GenerateChatReplyUseCase
+import com.pozyalov.ai_advent_challenge.chat.util.chatLog
 import kotlin.time.Instant
 import kotlin.time.Clock
 import kotlin.random.Random
@@ -24,6 +24,7 @@ enum class ConversationError {
 }
 
 data class ConversationMessage(
+    val threadId: Long,
     val id: Long = Random.nextLong(),
     val author: MessageAuthor,
     val text: String,
@@ -54,16 +55,16 @@ class ChatAgent(
             ?.text
             ?.take(120)
 
-        appLog(
+        chatLog(
             "Sending request with ${domainHistory.size} messages via model ${model.id} (temperature=$temperature). Last user message preview: ${
                 lastUserMessagePreview.orEmpty()
             }"
         )
 
         return generateReply(domainHistory, model, temperature)
-            .onSuccess { appLog("Parsed structured response: $it") }
+            .onSuccess { chatLog("Parsed structured response: $it") }
             .onFailure { failure ->
-                appLog("Failed to get structured response: ${failure.message.orEmpty()}")
+                chatLog("Failed to get structured response: ${failure.message.orEmpty()}")
             }
     }
 

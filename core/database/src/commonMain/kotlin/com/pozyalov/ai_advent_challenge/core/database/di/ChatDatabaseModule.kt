@@ -6,4 +6,5 @@ import org.koin.dsl.module
 
 val chatDatabaseModule: Module = module {
     single { get<ChatDatabase>().chatMessageDao() }
+    single { get<ChatDatabase>().chatThreadDao() }
 }

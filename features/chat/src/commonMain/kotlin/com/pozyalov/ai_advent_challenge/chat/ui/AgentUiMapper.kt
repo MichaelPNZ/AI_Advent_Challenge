@@ -1,4 +1,4 @@
-package com.pozyalov.ai_advent_challenge.chat
+package com.pozyalov.ai_advent_challenge.chat.ui
 
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import kotlin.math.roundToInt
