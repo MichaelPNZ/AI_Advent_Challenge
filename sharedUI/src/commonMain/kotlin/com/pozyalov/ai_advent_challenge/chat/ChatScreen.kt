@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTime::class)
+
 package com.pozyalov.ai_advent_challenge.chat
 
 import ai_advent_challenge.sharedui.generated.resources.Res
@@ -27,8 +29,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,16 +49,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.theme.LocalThemeIsDark
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
+import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
+import kotlin.time.ExperimentalTime
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +103,13 @@ fun ChatScreen(component: ChatComponent) {
             val isDark by themeState
             val icon = if (isDark) Res.drawable.ic_light_mode else Res.drawable.ic_dark_mode
             CenterAlignedTopAppBar(
+                navigationIcon = {
+                    ModelMenuButton(
+                        models = model.availableModels,
+                        selectedModelId = model.selectedModelId,
+                        onSelect = component::onModelSelected
+                    )
+                },
                 title = { Text(text = stringResource(Res.string.chat_title)) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -200,7 +222,7 @@ private fun ChatMessageBubble(
     message: ConversationMessage,
     missingKeyText: String,
     defaultErrorText: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val displayText = when (message.error) {
@@ -218,6 +240,13 @@ private fun ChatMessageBubble(
         modifier = modifier,
         horizontalArrangement = if (message.author == MessageAuthor.User) Arrangement.End else Arrangement.Start
     ) {
+        val metaLine = message.metaLine()
+        val metaColor = when {
+            message.error != null -> colors.onErrorContainer
+            message.author == MessageAuthor.User -> colors.onPrimaryContainer.copy(alpha = 0.9f)
+            else -> colors.onSurfaceVariant
+        }
+
         Surface(
             modifier = Modifier.widthIn(max = 520.dp),
             color = containerColor,
@@ -225,13 +254,118 @@ private fun ChatMessageBubble(
             shape = MaterialTheme.shapes.large,
             tonalElevation = if (message.author == MessageAuthor.User) 2.dp else 0.dp
         ) {
-            SelectionContainer {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = displayText,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    text = metaLine,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = metaColor
                 )
             }
         }
     }
 }
+
+@Composable
+private fun ModelMenuButton(
+    models: List<LlmModelOption>,
+    selectedModelId: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (models.isEmpty()) return
+    val selected = models.firstOrNull { it.id == selectedModelId } ?: models.first()
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedModelId) { expanded = false }
+    val buttonEnabled = models.size > 1
+
+    Box(modifier = modifier.padding(start = 8.dp)) {
+        Surface(
+            onClick = { expanded = true },
+            enabled = buttonEnabled,
+            shape = MaterialTheme.shapes.small,
+            color = Color.Transparent,//MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = selected.displayName,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            models.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = option.displayName,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option.id)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun ConversationMessage.metaLine(): String {
+    val local = timestamp.toLocalDateTime(TimeZone.currentSystemDefault())
+    val parts = buildList {
+        modelId?.let { add(it) }
+        add(local.formatDate())
+        add(local.formatTime())
+    }
+    return parts.joinToString(separator = " · ")
+}
+
+private fun kotlinx.datetime.LocalDateTime.formatDate(): String {
+    val day = day.twoDigits()
+    val month = month.number.twoDigits()
+    val year = year.toString()
+    return "$day.$month.$year"
+}
+
+private fun kotlinx.datetime.LocalDateTime.formatTime(): String {
+    val hour = hour.twoDigits()
+    val minute = minute.twoDigits()
+    return "$hour:$minute"
+}
+
+private fun Int.twoDigits(): String = if (this < 10) "0$this" else "$this"

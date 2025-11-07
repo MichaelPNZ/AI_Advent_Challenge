@@ -1,5 +1,7 @@
 package com.pozyalov.ai_advent_challenge.chat.domain
 
+import com.aallam.openai.api.model.ModelId
+
 data class AgentStructuredResponse(
     val title: String,
     val summary: String,
@@ -19,7 +21,11 @@ data class ChatMessage(
 
 interface ChatRepository {
     val isConfigured: Boolean
-    suspend fun generateReply(history: List<ChatMessage>): Result<AgentStructuredResponse>
+    suspend fun generateReply(
+        history: List<ChatMessage>,
+        model: ModelId,
+        temperature: Double
+    ): Result<AgentStructuredResponse>
     fun close()
 }
 
@@ -28,8 +34,11 @@ class GenerateChatReplyUseCase(
 ) {
     val isConfigured: Boolean get() = repository.isConfigured
 
-    suspend operator fun invoke(history: List<ChatMessage>): Result<AgentStructuredResponse> =
-        repository.generateReply(history)
+    suspend operator fun invoke(
+        history: List<ChatMessage>,
+        model: ModelId,
+        temperature: Double
+    ): Result<AgentStructuredResponse> = repository.generateReply(history, model, temperature)
 
     fun close() = repository.close()
 }

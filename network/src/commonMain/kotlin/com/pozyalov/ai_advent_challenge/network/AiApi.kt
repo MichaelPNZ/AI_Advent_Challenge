@@ -17,7 +17,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class AiApi(
     apiKey: String,
-    private val model: ModelId = ModelId("gpt-5-mini"),
+    private val defaultModel: ModelId = ModelId("gpt-5-mini"),
     private val systemPrompt: String? = null,
     private val proxy: ProxyConfig? = null,
 ) {
@@ -38,8 +38,14 @@ class AiApi(
 
     val isConfigured: Boolean get() = openAiClient != null
 
-    suspend fun chatCompletion(messages: List<AiMessage>): Result<String> {
+    suspend fun chatCompletion(
+        messages: List<AiMessage>,
+        model: ModelId? = null,
+        temperature: Double? = null
+    ): Result<String> {
         val client = openAiClient ?: return Result.failure(IllegalStateException("OpenAI API key is missing"))
+        val targetModel = model ?: defaultModel
+        val targetTemperature = temperature?.coerceIn(0.0, 2.0) ?: DEFAULT_TEMPERATURE
 
         val sanitized = messages.filter { it.text.isNotBlank() }
         val requestMessages = buildList {
@@ -52,11 +58,10 @@ class AiApi(
         return runCatching {
             val completion = client.chatCompletion(
                 ChatCompletionRequest(
-                    model = model,
+                    model = targetModel,
                     messages = requestMessages,
-                    reasoningEffort = DEFAULT_REASONING_EFFORT,
-                    temperature = 1.0,
-//                    maxCompletionTokens = 768,
+                    reasoningEffort = DEFAULT_REASONING_EFFORT.takeIf { targetModel.supportsReasoningEffort() },
+                    temperature = targetTemperature,
                     responseFormat = ChatResponseFormat.JsonObject,
                 )
             )
@@ -86,6 +91,12 @@ class AiApi(
 
     private companion object {
         val DEFAULT_REASONING_EFFORT: Effort = Effort("low")
+        const val DEFAULT_TEMPERATURE: Double = 0.8
+    }
+
+    private fun ModelId.supportsReasoningEffort(): Boolean {
+        val lowercaseId = id.lowercase()
+        return !lowercaseId.startsWith("gpt-4")
     }
 
     private fun Throwable?.isTimeoutError(): Boolean {
