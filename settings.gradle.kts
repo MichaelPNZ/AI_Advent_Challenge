@@ -36,4 +36,5 @@ plugins {
 include(":sharedUI")
 include(":androidApp")
 include(":desktopApp")
-include(":network")
+include(":core:network")
+include(":core:database")

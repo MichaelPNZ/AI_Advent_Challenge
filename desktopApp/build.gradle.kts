@@ -9,6 +9,7 @@ plugins {
 
 dependencies {
     implementation(project(":sharedUI"))
+    implementation(project(":core:database"))
     implementation(compose.ui)
     implementation(libs.koin.core)
     implementation(libs.room.runtime)

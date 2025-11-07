@@ -1,4 +1,4 @@
-package com.pozyalov.ai_advent_challenge.chat.data.local
+package com.pozyalov.ai_advent_challenge.core.database.chat
 
 import androidx.room.ConstructedBy
 import androidx.room.Database

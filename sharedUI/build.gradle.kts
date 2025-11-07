@@ -30,17 +30,6 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
-//    listOf(
-//        iosX64(),
-//        iosArm64(),
-//        iosSimulatorArm64()
-//    ).forEach { iosTarget ->
-//        iosTarget.binaries.framework {
-//            baseName = "shared"
-//            isStatic = true
-//        }
-//    }
-
     // <<<< КРИТИЧНО: Workaround для KSP и IDE >>>>
     // Источник: реальные production проектах, иначе IDE не видит сгенерированный код
     @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -78,7 +67,8 @@ kotlin {
             implementation(libs.room.runtime)
             implementation(libs.kstore)
             implementation(libs.openai.client)
-            implementation(project(":network"))
+            implementation(project(":core:database"))
+            implementation(project(":core:network"))
         }
 
         commonTest.dependencies {

@@ -25,6 +25,7 @@ android {
 
 dependencies {
     implementation(project(":sharedUI"))
+    implementation(project(":core:database"))
     implementation(libs.androidx.activityCompose)
     implementation(libs.room.runtime)
     implementation(libs.koin.core)

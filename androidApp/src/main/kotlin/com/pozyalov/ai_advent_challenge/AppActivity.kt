@@ -2,7 +2,6 @@ package com.pozyalov.ai_advent_challenge
 
 import android.app.Activity
 import android.app.Application
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,35 +10,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.room.Room
-import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
-import com.pozyalov.ai_advent_challenge.chat.data.RoomChatHistoryDataSource
-import com.pozyalov.ai_advent_challenge.chat.data.local.ChatDatabase
+import com.pozyalov.ai_advent_challenge.di.androidAppModule
 import com.pozyalov.ai_advent_challenge.di.initKoin
-import com.pozyalov.ai_advent_challenge.initLogs
-import org.koin.dsl.module
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
         initLogs()
-        initKoin(
-            appModule = module {
-                single<Context> { this@App.applicationContext }
-                single {
-                    Room.databaseBuilder(
-                        get<Context>(),
-                        ChatDatabase::class.java,
-                        "chat_history.db"
-                    ).fallbackToDestructiveMigration(true)
-                        .build()
-                }
-                single { get<ChatDatabase>().chatMessageDao() }
-                single<ChatHistoryDataSource> {
-                    RoomChatHistoryDataSource(dao = get())
-                }
-            }
-        )
+        initKoin(appModule = androidAppModule(appContext = this@App.applicationContext))
         instance = this
     }
 
