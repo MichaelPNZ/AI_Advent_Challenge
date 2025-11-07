@@ -1,7 +1,7 @@
 package com.pozyalov.ai_advent_challenge.di
 
 import android.content.Context
-import com.pozyalov.ai_advent_challenge.core.database.chat.createChatDatabase
+import com.pozyalov.ai_advent_challenge.core.database.factory.createChatDatabase
 import org.koin.core.module.Module
 import org.koin.dsl.module
 

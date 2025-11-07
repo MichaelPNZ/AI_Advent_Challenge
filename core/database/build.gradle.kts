@@ -23,6 +23,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.room.runtime)
             implementation(libs.sqlite.bundled)
+            implementation(libs.koin.core)
         }
         androidMain.dependencies { }
         jvmMain.dependencies { }

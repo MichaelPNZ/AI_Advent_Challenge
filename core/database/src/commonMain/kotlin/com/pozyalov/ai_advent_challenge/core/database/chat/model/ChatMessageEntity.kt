@@ -1,4 +1,4 @@
-package com.pozyalov.ai_advent_challenge.core.database.chat
+package com.pozyalov.ai_advent_challenge.core.database.chat.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

@@ -5,9 +5,9 @@ import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRepository
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
-import com.pozyalov.ai_advent_challenge.network.AiApi
-import com.pozyalov.ai_advent_challenge.network.AiMessage
-import com.pozyalov.ai_advent_challenge.network.AiRole
+import com.pozyalov.ai_advent_challenge.network.api.AiApi
+import com.pozyalov.ai_advent_challenge.network.api.AiMessage
+import com.pozyalov.ai_advent_challenge.network.api.AiRole
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json

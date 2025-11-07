@@ -3,7 +3,7 @@
 package com.pozyalov.ai_advent_challenge.chat.data
 
 import com.pozyalov.ai_advent_challenge.chat.ConversationMessage
-import com.pozyalov.ai_advent_challenge.core.database.chat.ChatMessageDao
+import com.pozyalov.ai_advent_challenge.core.database.chat.dao.ChatMessageDao
 import com.pozyalov.ai_advent_challenge.chat.data.local.toDomain
 import com.pozyalov.ai_advent_challenge.chat.data.local.toEntity
 import kotlinx.coroutines.sync.Mutex

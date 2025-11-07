@@ -1,9 +1,11 @@
-package com.pozyalov.ai_advent_challenge.core.database.chat
+package com.pozyalov.ai_advent_challenge.core.database.chat.db
 
 import androidx.room.ConstructedBy
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
+import com.pozyalov.ai_advent_challenge.core.database.chat.dao.ChatMessageDao
+import com.pozyalov.ai_advent_challenge.core.database.chat.model.ChatMessageEntity
 
 @Database(
     entities = [ChatMessageEntity::class],

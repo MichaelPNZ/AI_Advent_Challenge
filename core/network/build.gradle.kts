@@ -22,6 +22,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.openai.client)
+            implementation(libs.koin.core)
         }
 
         androidMain.dependencies {

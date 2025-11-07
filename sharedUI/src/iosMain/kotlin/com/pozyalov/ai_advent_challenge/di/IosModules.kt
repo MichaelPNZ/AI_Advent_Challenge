@@ -1,6 +1,9 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package com.pozyalov.ai_advent_challenge.di
 
-import com.pozyalov.ai_advent_challenge.core.database.chat.createChatDatabase
+import com.pozyalov.ai_advent_challenge.core.database.factory.createChatDatabase
+import kotlinx.cinterop.ExperimentalForeignApi
 import org.koin.core.module.Module
 import org.koin.dsl.module
 import platform.Foundation.NSFileManager

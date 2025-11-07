@@ -7,18 +7,16 @@ import com.pozyalov.ai_advent_challenge.chat.data.ChatRepositoryImpl
 import com.pozyalov.ai_advent_challenge.chat.data.RoomChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRepository
 import com.pozyalov.ai_advent_challenge.chat.domain.GenerateChatReplyUseCase
-import com.pozyalov.ai_advent_challenge.core.database.chat.ChatDatabase
-import com.pozyalov.ai_advent_challenge.network.AiApi
+import com.pozyalov.ai_advent_challenge.core.database.di.chatDatabaseModule
+import com.pozyalov.ai_advent_challenge.network.di.networkModule
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 private val sharedModule = module {
-    single(named("openAiKey")) { BuildKonfig.OPENAI_API_KEY }
-    factory { AiApi(apiKey = get(named("openAiKey"))) }
+    includes(networkModule(apiKey = BuildKonfig.OPENAI_API_KEY))
     factory<ChatRepository> { ChatRepositoryImpl(api = get()) }
-    single { get<ChatDatabase>().chatMessageDao() }
+    includes(chatDatabaseModule)
     single<ChatHistoryDataSource> { RoomChatHistoryDataSource(dao = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
     factory { ChatAgent(generateReply = get()) }

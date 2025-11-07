@@ -6,7 +6,7 @@ import com.pozyalov.ai_advent_challenge.chat.ConversationError
 import com.pozyalov.ai_advent_challenge.chat.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.MessageAuthor
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
-import com.pozyalov.ai_advent_challenge.core.database.chat.ChatMessageEntity
+import com.pozyalov.ai_advent_challenge.core.database.chat.model.ChatMessageEntity
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 

@@ -1,7 +1,8 @@
-package com.pozyalov.ai_advent_challenge.core.database.chat
+package com.pozyalov.ai_advent_challenge.core.database.factory
 
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.pozyalov.ai_advent_challenge.core.database.chat.db.ChatDatabase
 
 actual fun createChatDatabase(
     androidContext: Any?,

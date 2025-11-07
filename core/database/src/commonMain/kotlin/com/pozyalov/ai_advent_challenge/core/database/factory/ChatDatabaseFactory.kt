@@ -1,4 +1,6 @@
-package com.pozyalov.ai_advent_challenge.core.database.chat
+package com.pozyalov.ai_advent_challenge.core.database.factory
+
+import com.pozyalov.ai_advent_challenge.core.database.chat.db.ChatDatabase
 
 /**
  * Creates a platform-specific instance of [ChatDatabase].

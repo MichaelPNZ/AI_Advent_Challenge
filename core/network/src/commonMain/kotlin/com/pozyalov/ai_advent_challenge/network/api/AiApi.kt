@@ -1,4 +1,4 @@
-package com.pozyalov.ai_advent_challenge.network
+package com.pozyalov.ai_advent_challenge.network.api
 
 import com.aallam.openai.api.chat.ChatCompletionRequest
 import com.aallam.openai.api.chat.ChatMessage
