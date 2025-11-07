@@ -1,9 +1,10 @@
-@file:OptIn(ExperimentalTime::class)
+@file:OptIn(ExperimentalTime::class, ExperimentalMaterial3Api::class)
 
 package com.pozyalov.ai_advent_challenge.features.chatlist.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,16 +15,26 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,6 +49,7 @@ import kotlin.time.Instant
 @Composable
 fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) {
     val model by component.model.collectAsState()
+    val pendingDeletion = model.pendingDeletionId
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -83,14 +95,47 @@ fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) 
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(model.chats, key = { it.id }) { chat ->
-                        ChatListRow(
-                            item = chat,
-                            onClick = { component.onChatSelected(chat.id) }
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    component.onDeleteRequested(chat.id)
+                                }
+                                false
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = { DismissBackground() },
+                            enableDismissFromStartToEnd = false,
+                            enableDismissFromEndToStart = true,
+                            content = {
+                                ChatListRow(
+                                    item = chat,
+                                    onClick = { component.onChatSelected(chat.id) }
+                                )
+                            }
                         )
                     }
                 }
             }
         }
+    }
+    if (pendingDeletion != null) {
+        AlertDialog(
+            onDismissRequest = component::onDeleteCanceled,
+            title = { Text("Удалить чат?") },
+            text = { Text("История чата будет удалена без возможности восстановления.") },
+            confirmButton = {
+                Button(onClick = component::onDeleteConfirmed) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                Button(onClick = component::onDeleteCanceled) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
@@ -103,6 +148,7 @@ private fun ChatListRow(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
         tonalElevation = 2.dp,
         shape = MaterialTheme.shapes.medium
@@ -137,6 +183,28 @@ private fun ChatListRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DismissBackground() {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(end = 24.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
     }
 }

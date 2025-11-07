@@ -26,10 +26,14 @@ interface ChatListComponent {
     val model: StateFlow<Model>
     fun onChatSelected(id: Long)
     fun onNewChat()
+    fun onDeleteRequested(id: Long)
+    fun onDeleteConfirmed()
+    fun onDeleteCanceled()
 
     data class Model(
         val chats: List<ChatListItem>,
-        val isLoading: Boolean
+        val isLoading: Boolean,
+        val pendingDeletionId: Long? = null
     )
 }
 
@@ -63,6 +67,22 @@ class ChatListComponentImpl(
             val thread = threads.createThread()
             onOpenChat(thread.id)
         }
+    }
+
+    override fun onDeleteRequested(id: Long) {
+        _model.update { it.copy(pendingDeletionId = id) }
+    }
+
+    override fun onDeleteConfirmed() {
+        val id = _model.value.pendingDeletionId ?: return
+        scope.launch(Dispatchers.Default) {
+            runCatching { threads.deleteThread(id) }
+            _model.update { it.copy(pendingDeletionId = null) }
+        }
+    }
+
+    override fun onDeleteCanceled() {
+        _model.update { it.copy(pendingDeletionId = null) }
     }
 
     private fun observeThreads() {
