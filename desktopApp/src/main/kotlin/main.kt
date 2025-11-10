@@ -14,10 +14,10 @@ fun main() = application {
 
     Window(
         title = "AI_Advent_Challenge_#4",
-        state = rememberWindowState(width = 800.dp, height = 600.dp),
+        state = rememberWindowState(width = 1600.dp, height = 1200.dp),
         onCloseRequest = ::exitApplication,
     ) {
-        window.minimumSize = Dimension(350, 600)
+        window.minimumSize = Dimension(800, 600)
         App()
     }
 }

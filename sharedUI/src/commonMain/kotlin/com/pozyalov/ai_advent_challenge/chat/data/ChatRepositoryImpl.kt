@@ -1,13 +1,15 @@
 package com.pozyalov.ai_advent_challenge.chat.data
 
+//'typealias Clock = Clock' is deprecated. This type is deprecated in favor of `kotlin.time.Clock`
+
+import com.pozyalov.ai_advent_challenge.network.api.AiApi
+import com.pozyalov.ai_advent_challenge.network.api.AiMessage
+import com.pozyalov.ai_advent_challenge.network.api.AiRole
 import com.aallam.openai.api.model.ModelId
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRepository
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
-import com.pozyalov.ai_advent_challenge.network.api.AiApi
-import com.pozyalov.ai_advent_challenge.network.api.AiMessage
-import com.pozyalov.ai_advent_challenge.network.api.AiRole
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -189,10 +191,7 @@ class ChatRepositoryImpl(
             }
 
         private val RESPONSE_PROMPT: String = """
-Ты — ведущий фасилитатор команды виртуальных экспертов. Для каждого запроса:
-1. Сформируй группу минимум из трёх экспертов с разными ролями (например, Аналитик, Инженер, Скептик).
-2. По очереди дай каждому эксперту высказать своё решение или идею (коротко, по шагам).
-3. Объедини их выводы в финальный ответ.
+Ты — помощник, который отвечает на вопросы пользователя кратко и по делу.
 
 ФОРМАТ ОТВЕТА:
 - Всегда возвращай один JSON-объект в кодировке UTF-8 без дополнительного текста.
@@ -205,10 +204,7 @@ class ChatRepositoryImpl(
 
 ПРАВИЛА:
 - `title` отражает тему ответа.
-- `answer` должен содержать:
-  • перечисление экспертов и их шагов/идей;
-  • итоговое резюме ведущего фасилитатора.
-- Всегда решай пошагово и явно указывай вклад каждого эксперта.
+- `answer` содержит ясное объяснение или рекомендацию без лишних вопросов пользователю.
 - `confidence` — десятичное число: 0 = нет уверенности, 1 = максимальная уверенность.
 - Если данных мало, укажи это в `answer` и снизь `confidence`.
 - Не добавляй и не удаляй поля, не используй Markdown.

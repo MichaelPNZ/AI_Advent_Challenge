@@ -24,7 +24,9 @@ interface ChatRepository {
     suspend fun generateReply(
         history: List<ChatMessage>,
         model: ModelId,
-        temperature: Double
+        temperature: Double,
+        systemPrompt: String,
+        reasoningEffort: String
     ): Result<AgentStructuredResponse>
     fun close()
 }
@@ -37,8 +39,11 @@ class GenerateChatReplyUseCase(
     suspend operator fun invoke(
         history: List<ChatMessage>,
         model: ModelId,
-        temperature: Double
-    ): Result<AgentStructuredResponse> = repository.generateReply(history, model, temperature)
+        temperature: Double,
+        systemPrompt: String,
+        reasoningEffort: String
+    ): Result<AgentStructuredResponse> =
+        repository.generateReply(history, model, temperature, systemPrompt, reasoningEffort)
 
     fun close() = repository.close()
 }

@@ -41,7 +41,8 @@ class AiApi(
     suspend fun chatCompletion(
         messages: List<AiMessage>,
         model: ModelId? = null,
-        temperature: Double? = null
+        temperature: Double? = null,
+        reasoningEffort: String? = null
     ): Result<String> {
         val client = openAiClient ?: return Result.failure(IllegalStateException("OpenAI API key is missing"))
         val targetModel = model ?: defaultModel
@@ -56,11 +57,16 @@ class AiApi(
         }
 
         return runCatching {
+            val effort = reasoningEffort?.let(::Effort)
             val completion = client.chatCompletion(
                 ChatCompletionRequest(
                     model = targetModel,
                     messages = requestMessages,
-                    reasoningEffort = DEFAULT_REASONING_EFFORT.takeIf { targetModel.supportsReasoningEffort() },
+                    reasoningEffort = when {
+                        !targetModel.supportsReasoningEffort() -> null
+                        effort != null -> effort
+                        else -> DEFAULT_REASONING_EFFORT
+                    },
                     temperature = targetTemperature,
                     responseFormat = ChatResponseFormat.JsonObject,
                 )

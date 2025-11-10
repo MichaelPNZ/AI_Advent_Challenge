@@ -44,7 +44,9 @@ class ChatAgent(
     suspend fun reply(
         history: List<ConversationMessage>,
         model: ModelId,
-        temperature: Double
+        temperature: Double,
+        systemPrompt: String,
+        reasoningEffort: String
     ): Result<AgentStructuredResponse> {
         val domainHistory = history
             .filterNot { it.error != null && it.author == MessageAuthor.Agent }
@@ -61,7 +63,7 @@ class ChatAgent(
             }"
         )
 
-        return generateReply(domainHistory, model, temperature)
+        return generateReply(domainHistory, model, temperature, systemPrompt, reasoningEffort)
             .onSuccess { chatLog("Parsed structured response: $it") }
             .onFailure { failure ->
                 chatLog("Failed to get structured response: ${failure.message.orEmpty()}")

@@ -7,8 +7,14 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.backhandler.BackCallback
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleCatalog
+import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
+import com.pozyalov.ai_advent_challenge.chat.model.ReasoningCatalog
+import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
+import com.pozyalov.ai_advent_challenge.chat.model.TemperatureCatalog
+import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
 import com.pozyalov.ai_advent_challenge.chat.ui.formatForDisplay
 import com.pozyalov.ai_advent_challenge.chat.util.chatLog
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
@@ -31,6 +37,9 @@ interface ChatComponent {
     fun onInputChange(text: String)
     fun onSend()
     fun onModelSelected(modelId: String)
+    fun onRoleSelected(roleId: String)
+    fun onTemperatureSelected(optionId: String)
+    fun onReasoningSelected(optionId: String)
     fun onBack()
 
     data class Model(
@@ -39,7 +48,13 @@ interface ChatComponent {
         val isSending: Boolean,
         val isConfigured: Boolean,
         val availableModels: List<LlmModelOption>,
-        val selectedModelId: String
+        val selectedModelId: String,
+        val availableRoles: List<ChatRoleOption>,
+        val selectedRoleId: String,
+        val availableTemperatures: List<TemperatureOption>,
+        val selectedTemperatureId: String,
+        val availableReasoning: List<ReasoningOption>,
+        val selectedReasoningId: String
     )
 }
 
@@ -57,6 +72,9 @@ class ChatComponentImpl(
     private val historyStorage = chatHistory
     private val threadStorage = chatThreads
     private val modelOptions: List<LlmModelOption> = LlmModelCatalog.models
+    private val roleOptions: List<ChatRoleOption> = ChatRoleCatalog.roles
+    private val temperatureOptions: List<TemperatureOption> = TemperatureCatalog.options
+    private val reasoningOptions: List<ReasoningOption> = ReasoningCatalog.options
 
     private val _model = MutableStateFlow(
         ChatComponent.Model(
@@ -65,7 +83,13 @@ class ChatComponentImpl(
             isSending = false,
             isConfigured = agent.isConfigured,
             availableModels = modelOptions,
-            selectedModelId = LlmModelCatalog.DefaultModelId
+            selectedModelId = LlmModelCatalog.DefaultModelId,
+            availableRoles = roleOptions,
+            selectedRoleId = ChatRoleCatalog.defaultRole.id,
+            availableTemperatures = temperatureOptions,
+            selectedTemperatureId = TemperatureCatalog.default.id,
+            availableReasoning = reasoningOptions,
+            selectedReasoningId = ReasoningCatalog.default.id
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -100,6 +124,21 @@ class ChatComponentImpl(
                 isConfigured = agent.isConfigured
             )
         }
+    }
+
+    override fun onRoleSelected(roleId: String) {
+        if (roleOptions.none { it.id == roleId }) return
+        _model.update { current -> current.copy(selectedRoleId = roleId) }
+    }
+
+    override fun onTemperatureSelected(optionId: String) {
+        if (temperatureOptions.none { it.id == optionId }) return
+        _model.update { current -> current.copy(selectedTemperatureId = optionId) }
+    }
+
+    override fun onReasoningSelected(optionId: String) {
+        if (reasoningOptions.none { it.id == optionId }) return
+        _model.update { current -> current.copy(selectedReasoningId = optionId) }
     }
 
     override fun onSend() {
@@ -163,8 +202,21 @@ class ChatComponentImpl(
         val modelId = ModelId(selectedModel.id)
         val temperature = selectedModel.temperature
 
+        val rolePrompt = roleOptions.firstOrNull { it.id == _model.value.selectedRoleId }
+            ?: ChatRoleCatalog.defaultRole
+        val temperatureOption = temperatureOptions.firstOrNull { it.id == _model.value.selectedTemperatureId }
+            ?: TemperatureCatalog.default
+        val reasoningOption = reasoningOptions.firstOrNull { it.id == _model.value.selectedReasoningId }
+            ?: ReasoningCatalog.default
+
         coroutineScope.launch {
-            val result = agent.reply(history, modelId, temperature)
+            val result = agent.reply(
+                history = history,
+                model = modelId,
+                temperature = temperatureOption.value,
+                systemPrompt = rolePrompt.systemPrompt,
+                reasoningEffort = reasoningOption.effort
+            )
             val responseMessage = result.fold(
                 onSuccess = { reply ->
                     ConversationMessage(

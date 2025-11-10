@@ -9,9 +9,6 @@ import ai_advent_challenge.features.chat.generated.resources.chat_error_generic
 import ai_advent_challenge.features.chat.generated.resources.chat_input_placeholder
 import ai_advent_challenge.features.chat.generated.resources.chat_send
 import ai_advent_challenge.features.chat.generated.resources.chat_title
-import ai_advent_challenge.features.chat.generated.resources.ic_dark_mode
-import ai_advent_challenge.features.chat.generated.resources.ic_light_mode
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,12 +24,17 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -46,6 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,7 +59,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -66,12 +68,14 @@ import com.pozyalov.ai_advent_challenge.chat.component.ChatComponent
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationError
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
+import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
+import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
+import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
-import org.jetbrains.compose.resources.vectorResource
 import kotlin.time.ExperimentalTime
 
 @Composable
@@ -79,11 +83,12 @@ import kotlin.time.ExperimentalTime
 fun ChatScreen(
     component: ChatComponent,
     isDark: Boolean,
-    onToggleTheme: () -> Unit,
+    onThemeChange: (Boolean) -> Unit,
 ) {
     val model by component.model.collectAsState()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
+    var showSettings by remember { mutableStateOf(false) }
 
     val emptyStateText = stringResource(Res.string.chat_empty_state)
     val missingKeyText = stringResource(Res.string.chat_api_key_missing)
@@ -103,28 +108,37 @@ fun ChatScreen(
         focusManager.clearFocus(force = true)
     }
 
+    if (showSettings) {
+        ChatSettingsDialog(
+            isDark = isDark,
+            onThemeChange = onThemeChange,
+            onDismiss = { showSettings = false },
+            models = model.availableModels,
+            selectedModelId = model.selectedModelId,
+            onModelSelected = component::onModelSelected,
+            roles = model.availableRoles,
+            selectedRoleId = model.selectedRoleId,
+            onRoleSelected = component::onRoleSelected,
+            temperatures = model.availableTemperatures,
+            selectedTemperatureId = model.selectedTemperatureId,
+            onTemperatureSelected = component::onTemperatureSelected,
+            reasoningOptions = model.availableReasoning,
+            selectedReasoningId = model.selectedReasoningId,
+            onReasoningSelected = component::onReasoningSelected
+        )
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing),
         topBar = {
-            val icon = if (isDark) Res.drawable.ic_light_mode else Res.drawable.ic_dark_mode
             CenterAlignedTopAppBar(
                 navigationIcon = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        IconButton(onClick = component::onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = null
-                            )
-                        }
-                        ModelMenuButton(
-                            models = model.availableModels,
-                            selectedModelId = model.selectedModelId,
-                            onSelect = component::onModelSelected
+                    IconButton(onClick = component::onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null
                         )
                     }
                 },
@@ -133,10 +147,11 @@ fun ChatScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
                 actions = {
-                    IconButton(onClick = onToggleTheme) {
+                    IconButton(onClick = { showSettings = true }) {
                         Icon(
-                            imageVector = vectorResource(icon),
-                            contentDescription = null
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -293,75 +308,222 @@ private fun ChatMessageBubble(
 }
 
 @Composable
-private fun ModelMenuButton(
+private fun ChatSettingsDialog(
+    isDark: Boolean,
+    onThemeChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
     models: List<LlmModelOption>,
     selectedModelId: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
+    onModelSelected: (String) -> Unit,
+    roles: List<ChatRoleOption>,
+    selectedRoleId: String,
+    onRoleSelected: (String) -> Unit,
+    temperatures: List<TemperatureOption>,
+    selectedTemperatureId: String,
+    onTemperatureSelected: (String) -> Unit,
+    reasoningOptions: List<ReasoningOption>,
+    selectedReasoningId: String,
+    onReasoningSelected: (String) -> Unit,
 ) {
-    if (models.isEmpty()) return
-    val selected = models.firstOrNull { it.id == selectedModelId } ?: models.first()
-    var expanded by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedModelId) { expanded = false }
-    val buttonEnabled = models.size > 1
+    val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
 
-    Box(modifier = modifier.padding(start = 8.dp)) {
-        Surface(
-            onClick = { expanded = true },
-            enabled = buttonEnabled,
-            shape = MaterialTheme.shapes.small,
-            color = Color.Transparent,//MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+    AlertDialog(
+        modifier = Modifier.padding(20.dp),
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Готово")
+            }
+        },
+        title = { Text(text = "Настройки чата") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(
-                    text = selected.displayName,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                SettingsDropdown(
+                    label = "Тема",
+                    selectedId = selectedThemeId,
+                    options = chatThemeOptions,
+                    optionId = { it.id },
+                    optionTitle = { it.title },
+                    optionDescription = { it.description },
+                    onSelect = { option ->
+                        if (option.isDark != isDark) {
+                            onThemeChange(option.isDark)
+                        }
+                    }
                 )
-                Icon(
-                    imageVector = Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface
+                SettingsDropdown(
+                    label = "Модель",
+                    selectedId = selectedModelId,
+                    options = models,
+                    optionId = { it.id },
+                    optionTitle = { it.displayName },
+                    optionDescription = { it.description },
+                    onSelect = { onModelSelected(it.id) }
+                )
+                SettingsDropdown(
+                    label = "Роль",
+                    selectedId = selectedRoleId,
+                    options = roles,
+                    optionId = { it.id },
+                    optionTitle = { it.displayName },
+                    optionDescription = { it.description },
+                    onSelect = { onRoleSelected(it.id) }
+                )
+                SettingsDropdown(
+                    label = "Температура",
+                    selectedId = selectedTemperatureId,
+                    options = temperatures,
+                    optionId = { it.id },
+                    optionTitle = { it.displayName },
+                    optionDescription = { it.description },
+                    onSelect = { onTemperatureSelected(it.id) }
+                )
+                SettingsDropdown(
+                    label = "Reasoning effort",
+                    selectedId = selectedReasoningId,
+                    options = reasoningOptions,
+                    optionId = { it.id },
+                    optionTitle = { it.displayName },
+                    optionDescription = { it.description },
+                    onSelect = { onReasoningSelected(it.id) }
                 )
             }
         }
+    )
+}
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            models.forEach { option ->
-                DropdownMenuItem(
-                    text = {
-                        Column(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = option.displayName,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = option.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelect(option.id)
+@Composable
+private fun <T> SettingsDropdown(
+    label: String,
+    selectedId: String,
+    options: List<T>,
+    optionId: (T) -> String,
+    optionTitle: (T) -> String,
+    optionDescription: (T) -> String?,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (options.isEmpty()) return
+    val selected = options.firstOrNull { optionId(it) == selectedId } ?: options.first()
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedId) { expanded = false }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Box {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 0.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = true }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = optionTitle(selected),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        optionDescription(selected)
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { desc ->
+                                Text(
+                                    text = desc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                     }
-                )
+                    Icon(
+                        imageVector = Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Column(
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = optionTitle(option),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                optionDescription(option)
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let { desc ->
+                                        Text(
+                                            text = desc,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelect(option)
+                        }
+                    )
+                }
             }
         }
     }
 }
+
+private data class ChatThemeOption(
+    val id: String,
+    val title: String,
+    val description: String,
+    val isDark: Boolean
+)
+
+private const val THEME_LIGHT_ID = "theme_light"
+private const val THEME_DARK_ID = "theme_dark"
+
+private val chatThemeOptions = listOf(
+    ChatThemeOption(
+        id = THEME_LIGHT_ID,
+        title = "Светлая тема",
+        description = "Светлая палитра и стандартный контраст",
+        isDark = false
+    ),
+    ChatThemeOption(
+        id = THEME_DARK_ID,
+        title = "Тёмная тема",
+        description = "Глубокие оттенки для работы ночью",
+        isDark = true
+    )
+)
 
 private fun ConversationMessage.metaLine(): String {
     val local = timestamp.toLocalDateTime(TimeZone.currentSystemDefault())

@@ -41,7 +41,7 @@ private fun RootContent(component: RootComponent) {
             ChatScreen(
                 component = child.component,
                 isDark = isDark,
-                onToggleTheme = { themeState.value = !themeState.value }
+                onThemeChange = { themeState.value = it }
             )
         }
     }
