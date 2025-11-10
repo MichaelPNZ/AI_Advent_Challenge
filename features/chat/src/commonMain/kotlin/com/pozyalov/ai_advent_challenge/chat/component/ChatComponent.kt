@@ -54,7 +54,9 @@ interface ChatComponent {
         val availableTemperatures: List<TemperatureOption>,
         val selectedTemperatureId: String,
         val availableReasoning: List<ReasoningOption>,
-        val selectedReasoningId: String
+        val selectedReasoningId: String,
+        val isTemperatureLocked: Boolean,
+        val lockedTemperatureValue: Double?
     )
 }
 
@@ -72,6 +74,7 @@ class ChatComponentImpl(
     private val historyStorage = chatHistory
     private val threadStorage = chatThreads
     private val modelOptions: List<LlmModelOption> = LlmModelCatalog.models
+    private val defaultModelOption: LlmModelOption = modelOptions.first { it.id == LlmModelCatalog.DefaultModelId }
     private val roleOptions: List<ChatRoleOption> = ChatRoleCatalog.roles
     private val temperatureOptions: List<TemperatureOption> = TemperatureCatalog.options
     private val reasoningOptions: List<ReasoningOption> = ReasoningCatalog.options
@@ -89,7 +92,9 @@ class ChatComponentImpl(
             availableTemperatures = temperatureOptions,
             selectedTemperatureId = TemperatureCatalog.default.id,
             availableReasoning = reasoningOptions,
-            selectedReasoningId = ReasoningCatalog.default.id
+            selectedReasoningId = ReasoningCatalog.default.id,
+            isTemperatureLocked = defaultModelOption.temperatureLocked,
+            lockedTemperatureValue = defaultModelOption.temperature.takeIf { defaultModelOption.temperatureLocked }
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -117,11 +122,13 @@ class ChatComponentImpl(
     }
 
     override fun onModelSelected(modelId: String) {
-        if (modelOptions.none { it.id == modelId }) return
+        val selected = modelOptions.firstOrNull { it.id == modelId } ?: return
         _model.update { current ->
             current.copy(
-                selectedModelId = modelId,
-                isConfigured = agent.isConfigured
+                selectedModelId = selected.id,
+                isConfigured = agent.isConfigured,
+                isTemperatureLocked = selected.temperatureLocked,
+                lockedTemperatureValue = selected.temperature.takeIf { selected.temperatureLocked }
             )
         }
     }
@@ -132,6 +139,7 @@ class ChatComponentImpl(
     }
 
     override fun onTemperatureSelected(optionId: String) {
+        if (_model.value.isTemperatureLocked) return
         if (temperatureOptions.none { it.id == optionId }) return
         _model.update { current -> current.copy(selectedTemperatureId = optionId) }
     }
@@ -147,6 +155,9 @@ class ChatComponentImpl(
         var targetModelId: String? = null
         var userMessageToPersist: ConversationMessage? = null
         var errorMessageToPersist: ConversationMessage? = null
+        var selectedRoleOption: ChatRoleOption? = null
+        var activeTemperatureValue: Double? = null
+        var selectedReasoningOption: ReasoningOption? = null
 
         _model.update { state ->
             val trimmed = state.input.trim()
@@ -154,10 +165,26 @@ class ChatComponentImpl(
                 return@update state
             }
 
+            val roleOption = roleOptions.firstOrNull { it.id == state.selectedRoleId } ?: ChatRoleCatalog.defaultRole
+            val selectedModel = modelOptions.firstOrNull { it.id == state.selectedModelId } ?: defaultModelOption
+            val temperatureValue = if (selectedModel.temperatureLocked) {
+                selectedModel.temperature
+            } else {
+                temperatureOptions.firstOrNull { it.id == state.selectedTemperatureId }?.value
+                    ?: TemperatureCatalog.default.value
+            }
+            val reasoningOption = reasoningOptions.firstOrNull { it.id == state.selectedReasoningId }
+                ?: ReasoningCatalog.default
+            selectedRoleOption = roleOption
+            activeTemperatureValue = temperatureValue
+            selectedReasoningOption = reasoningOption
+
             val userMessage = ConversationMessage(
                 threadId = threadId,
                 author = MessageAuthor.User,
-                text = trimmed
+                text = trimmed,
+                roleId = roleOption.id,
+                temperature = temperatureValue
             )
             userMessageToPersist = userMessage
             val updatedMessages = state.messages + userMessage
@@ -167,7 +194,9 @@ class ChatComponentImpl(
                     threadId = threadId,
                     author = MessageAuthor.Agent,
                     text = "",
-                    error = ConversationError.MissingApiKey
+                    error = ConversationError.MissingApiKey,
+                    roleId = roleOption.id,
+                    temperature = temperatureValue
                 )
                 errorMessageToPersist = failureMessage
                 return@update state.copy(
@@ -197,23 +226,18 @@ class ChatComponentImpl(
 
         val history = requestHistory ?: return
         val selectedModelId = targetModelId ?: LlmModelCatalog.DefaultModelId
-        val selectedModel = modelOptions.firstOrNull { it.id == selectedModelId }
-            ?: LlmModelCatalog.firstOrDefault(selectedModelId)
+        val selectedModel = modelOptions.firstOrNull { it.id == selectedModelId } ?: defaultModelOption
         val modelId = ModelId(selectedModel.id)
-        val temperature = selectedModel.temperature
 
-        val rolePrompt = roleOptions.firstOrNull { it.id == _model.value.selectedRoleId }
-            ?: ChatRoleCatalog.defaultRole
-        val temperatureOption = temperatureOptions.firstOrNull { it.id == _model.value.selectedTemperatureId }
-            ?: TemperatureCatalog.default
-        val reasoningOption = reasoningOptions.firstOrNull { it.id == _model.value.selectedReasoningId }
-            ?: ReasoningCatalog.default
+        val rolePrompt = selectedRoleOption ?: ChatRoleCatalog.defaultRole
+        val temperatureValue = activeTemperatureValue ?: TemperatureCatalog.default.value
+        val reasoningOption = selectedReasoningOption ?: ReasoningCatalog.default
 
         coroutineScope.launch {
             val result = agent.reply(
                 history = history,
                 model = modelId,
-                temperature = temperatureOption.value,
+                temperature = temperatureValue,
                 systemPrompt = rolePrompt.systemPrompt,
                 reasoningEffort = reasoningOption.effort
             )
@@ -224,7 +248,9 @@ class ChatComponentImpl(
                         author = MessageAuthor.Agent,
                         text = reply.formatForDisplay(),
                         structured = reply,
-                        modelId = modelId.id
+                        modelId = modelId.id,
+                        roleId = rolePrompt.id,
+                        temperature = temperatureValue
                     )
                 },
                 onFailure = { throwable ->
@@ -233,7 +259,9 @@ class ChatComponentImpl(
                         author = MessageAuthor.Agent,
                         text = throwable.message.orEmpty(),
                         error = ConversationError.Failure,
-                        modelId = modelId.id
+                        modelId = modelId.id,
+                        roleId = rolePrompt.id,
+                        temperature = temperatureValue
                     )
                 }
             )

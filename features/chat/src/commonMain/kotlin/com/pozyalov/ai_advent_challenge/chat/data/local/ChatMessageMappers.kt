@@ -21,7 +21,9 @@ fun ChatMessageEntity.toDomain(): ConversationMessage {
         structured = toStructuredResponse(),
         error = resolvedError,
         timestamp = Instant.fromEpochMilliseconds(timestampEpochMillis),
-        modelId = modelId
+        modelId = modelId,
+        roleId = roleId,
+        temperature = temperature
     )
 }
 
@@ -36,7 +38,9 @@ fun ConversationMessage.toEntity(): ChatMessageEntity =
         structuredConfidence = structured?.confidence,
         error = error?.name,
         timestampEpochMillis = timestamp.toEpochMilliseconds(),
-        modelId = modelId
+        modelId = modelId,
+        roleId = roleId,
+        temperature = temperature
     )
 
 private fun ChatMessageEntity.toStructuredResponse(): AgentStructuredResponse? {

@@ -31,7 +31,9 @@ data class ConversationMessage(
     val structured: AgentStructuredResponse? = null,
     val error: ConversationError? = null,
     val timestamp: Instant = Clock.System.now(),
-    val modelId: String? = null
+    val modelId: String? = null,
+    val roleId: String? = null,
+    val temperature: Double? = null
 ) {
     val isError: Boolean get() = error != null
 }

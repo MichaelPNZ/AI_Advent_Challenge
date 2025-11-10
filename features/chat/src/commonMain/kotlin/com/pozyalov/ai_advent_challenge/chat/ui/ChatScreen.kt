@@ -95,6 +95,9 @@ fun ChatScreen(
     val errorText = stringResource(Res.string.chat_error_generic)
     val inputPlaceholder = stringResource(Res.string.chat_input_placeholder)
     val sendLabel = stringResource(Res.string.chat_send)
+    val roleTitleLookup = remember(model.availableRoles) {
+        model.availableRoles.associate { it.id to it.displayName }
+    }
 
     LaunchedEffect(model.messages.size) {
         if (model.messages.isNotEmpty()) {
@@ -121,6 +124,8 @@ fun ChatScreen(
             onRoleSelected = component::onRoleSelected,
             temperatures = model.availableTemperatures,
             selectedTemperatureId = model.selectedTemperatureId,
+            isTemperatureLocked = model.isTemperatureLocked,
+            lockedTemperatureValue = model.lockedTemperatureValue,
             onTemperatureSelected = component::onTemperatureSelected,
             reasoningOptions = model.availableReasoning,
             selectedReasoningId = model.selectedReasoningId,
@@ -201,10 +206,14 @@ fun ChatScreen(
                         state = listState
                     ) {
                         items(model.messages, key = { it.id }) { message ->
+                            val temperatureLabel = message.temperature?.let { "T=${it.formatTemperatureValue()}" }
+                            val roleLabel = message.roleId?.let { roleTitleLookup[it] ?: it }
                             ChatMessageBubble(
                                 message = message,
                                 missingKeyText = missingKeyText,
                                 defaultErrorText = errorText,
+                                temperatureLabel = temperatureLabel,
+                                roleLabel = roleLabel,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -255,6 +264,8 @@ private fun ChatMessageBubble(
     message: ConversationMessage,
     missingKeyText: String,
     defaultErrorText: String,
+    temperatureLabel: String?,
+    roleLabel: String?,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -273,7 +284,10 @@ private fun ChatMessageBubble(
         modifier = modifier,
         horizontalArrangement = if (message.author == MessageAuthor.User) Arrangement.End else Arrangement.Start
     ) {
-        val metaLine = message.metaLine()
+        val metaLine = message.metaLine(
+            temperatureLabel = temperatureLabel,
+            roleLabel = roleLabel
+        )
         val metaColor = when {
             message.error != null -> colors.onErrorContainer
             message.author == MessageAuthor.User -> colors.onPrimaryContainer.copy(alpha = 0.9f)
@@ -320,12 +334,15 @@ private fun ChatSettingsDialog(
     onRoleSelected: (String) -> Unit,
     temperatures: List<TemperatureOption>,
     selectedTemperatureId: String,
+    isTemperatureLocked: Boolean,
+    lockedTemperatureValue: Double?,
     onTemperatureSelected: (String) -> Unit,
     reasoningOptions: List<ReasoningOption>,
     selectedReasoningId: String,
     onReasoningSelected: (String) -> Unit,
 ) {
     val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
+    val selectedModelName = models.firstOrNull { it.id == selectedModelId }?.displayName ?: "выбранной модели"
 
     AlertDialog(
         modifier = Modifier.padding(20.dp),
@@ -374,15 +391,23 @@ private fun ChatSettingsDialog(
                     optionDescription = { it.description },
                     onSelect = { onRoleSelected(it.id) }
                 )
-                SettingsDropdown(
-                    label = "Температура",
-                    selectedId = selectedTemperatureId,
-                    options = temperatures,
-                    optionId = { it.id },
-                    optionTitle = { it.displayName },
-                    optionDescription = { it.description },
-                    onSelect = { onTemperatureSelected(it.id) }
-                )
+                if (isTemperatureLocked) {
+                    LockedSetting(
+                        label = "Температура",
+                        value = lockedTemperatureValue?.let { "T=${it.formatTemperatureValue()}" } ?: "T=—",
+                        description = "Температура фиксирована для $selectedModelName"
+                    )
+                } else {
+                    SettingsDropdown(
+                        label = "Температура",
+                        selectedId = selectedTemperatureId,
+                        options = temperatures,
+                        optionId = { it.id },
+                        optionTitle = { it.displayName },
+                        optionDescription = { it.description },
+                        onSelect = { onTemperatureSelected(it.id) }
+                    )
+                }
                 SettingsDropdown(
                     label = "Reasoning effort",
                     selectedId = selectedReasoningId,
@@ -500,6 +525,48 @@ private fun <T> SettingsDropdown(
     }
 }
 
+@Composable
+private fun LockedSetting(
+    label: String,
+    value: String,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 private data class ChatThemeOption(
     val id: String,
     val title: String,
@@ -525,10 +592,15 @@ private val chatThemeOptions = listOf(
     )
 )
 
-private fun ConversationMessage.metaLine(): String {
+private fun ConversationMessage.metaLine(
+    temperatureLabel: String?,
+    roleLabel: String?
+): String {
     val local = timestamp.toLocalDateTime(TimeZone.currentSystemDefault())
     val parts = buildList {
         modelId?.let { add(it) }
+        temperatureLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
+        roleLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
         add(local.formatDate())
         add(local.formatTime())
     }
@@ -549,3 +621,12 @@ private fun kotlinx.datetime.LocalDateTime.formatTime(): String {
 }
 
 private fun Int.twoDigits(): String = if (this < 10) "0$this" else "$this"
+
+private fun Double.formatTemperatureValue(): String {
+    val raw = this.toString()
+    return if (raw.contains('E') || raw.contains('e')) {
+        raw
+    } else {
+        raw.trimEnd('0').trimEnd('.')
+    }
+}

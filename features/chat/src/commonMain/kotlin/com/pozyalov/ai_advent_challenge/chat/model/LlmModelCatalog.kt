@@ -6,6 +6,7 @@ data class LlmModelOption(
     val displayName: String,
     val description: String,
     val temperature: Double,
+    val temperatureLocked: Boolean = false
 )
 
 object LlmModelCatalog {
@@ -16,13 +17,15 @@ object LlmModelCatalog {
             id = "gpt-5-mini",
             displayName = "GPT-5 Mini",
             description = "Универсальная модель для продвинутых диалогов и проектирования",
-            temperature = 1.0
+            temperature = 1.0,
+            temperatureLocked = true
         ),
         LlmModelOption(
             id = "gpt-5-nano",
             displayName = "GPT-5 Nano",
             description = "Максимально экономичный вариант пятого поколения для быстрых подсказок",
-            temperature = 1.0
+            temperature = 1.0,
+            temperatureLocked = true
         ),
         LlmModelOption(
             id = "gpt-4.1",
