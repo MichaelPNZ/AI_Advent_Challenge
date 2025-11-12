@@ -11,7 +11,7 @@ import com.pozyalov.ai_advent_challenge.core.database.chat.model.ChatThreadEntit
 
 @Database(
     entities = [ChatMessageEntity::class, ChatThreadEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 

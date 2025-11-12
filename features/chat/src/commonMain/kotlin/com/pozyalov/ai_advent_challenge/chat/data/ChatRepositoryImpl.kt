@@ -1,11 +1,16 @@
 package com.pozyalov.ai_advent_challenge.chat.data
 
 import com.aallam.openai.api.model.ModelId
+import com.pozyalov.ai_advent_challenge.chat.domain.AgentReply
+import com.pozyalov.ai_advent_challenge.chat.domain.AgentResponseMetrics
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRepository
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
+import com.pozyalov.ai_advent_challenge.chat.model.LlmModelCatalog
 import com.pozyalov.ai_advent_challenge.network.api.AiApi
+import com.pozyalov.ai_advent_challenge.network.api.AiCompletionResult
+import com.pozyalov.ai_advent_challenge.network.api.AiCompletionUsage
 import com.pozyalov.ai_advent_challenge.network.api.AiMessage
 import com.pozyalov.ai_advent_challenge.network.api.AiRole
 import kotlinx.serialization.Serializable
@@ -37,7 +42,7 @@ class ChatRepositoryImpl(
         temperature: Double,
         systemPrompt: String,
         reasoningEffort: String,
-    ): Result<AgentStructuredResponse> {
+    ): Result<AgentReply> {
         val sanitizedHistory = history.filter { it.content.isNotBlank() }
 
         val requestMessages = buildList {
@@ -50,7 +55,13 @@ class ChatRepositoryImpl(
             model = model,
             temperature = temperature,
             reasoningEffort = reasoningEffort
-        ).mapCatching { raw -> parseStructuredResponse(raw) }
+        ).mapCatching { result ->
+            val structured = parseStructuredResponse(result.content)
+            AgentReply(
+                structured = structured,
+                metrics = result.toMetrics()
+            )
+        }
     }
 
     private fun ChatMessage.toAiMessage(): AiMessage {
@@ -167,6 +178,33 @@ class ChatRepositoryImpl(
             confidence = confidence
         )
 
+    private fun AiCompletionResult.toMetrics(): AgentResponseMetrics =
+        AgentResponseMetrics(
+            modelId = modelId,
+            durationMillis = durationMillis,
+            promptTokens = usage?.promptTokens,
+            completionTokens = usage?.completionTokens,
+            totalTokens = usage?.totalTokens,
+            costUsd = calculateCostUsd(modelId, usage)
+        )
+
+    private fun calculateCostUsd(modelId: String, usage: AiCompletionUsage?): Double? {
+        if (usage == null) return null
+        val option = LlmModelCatalog.models.firstOrNull { it.id == modelId } ?: return null
+        val promptRate = option.promptPricePer1KTokensUsd
+        val completionRate = option.completionPricePer1KTokensUsd
+        if (promptRate == null && completionRate == null) return null
+
+        val promptCost = usage.promptTokens?.let { tokens ->
+            promptRate?.let { rate -> (tokens.toDouble() / TOKENS_IN_THOUSAND) * rate }
+        } ?: 0.0
+        val completionCost = usage.completionTokens?.let { tokens ->
+            completionRate?.let { rate -> (tokens.toDouble() / TOKENS_IN_THOUSAND) * rate }
+        } ?: 0.0
+
+        return (promptCost + completionCost)
+    }
+
     @Serializable
     private data class AgentResponsePayload(
         val title: String,
@@ -230,6 +268,6 @@ class ChatRepositoryImpl(
 //- Если данных мало, укажи это в `answer` и снизь `confidence`.
 //- Не добавляй и не удаляй поля, не используй Markdown.
 //        """.trimIndent()
-//
+        private const val TOKENS_IN_THOUSAND = 1_000.0
     }
 }

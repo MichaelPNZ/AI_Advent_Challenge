@@ -16,5 +16,10 @@ data class ChatMessageEntity(
     val timestampEpochMillis: Long,
     val modelId: String?,
     val roleId: String?,
-    val temperature: Double?
+    val temperature: Double?,
+    val responseTimeMillis: Long?,
+    val promptTokens: Long?,
+    val completionTokens: Long?,
+    val totalTokens: Long?,
+    val costUsd: Double?
 )

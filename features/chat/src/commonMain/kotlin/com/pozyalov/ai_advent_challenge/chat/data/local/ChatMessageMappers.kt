@@ -23,7 +23,12 @@ fun ChatMessageEntity.toDomain(): ConversationMessage {
         timestamp = Instant.fromEpochMilliseconds(timestampEpochMillis),
         modelId = modelId,
         roleId = roleId,
-        temperature = temperature
+        temperature = temperature,
+        responseTimeMillis = responseTimeMillis,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        costUsd = costUsd
     )
 }
 
@@ -40,7 +45,12 @@ fun ConversationMessage.toEntity(): ChatMessageEntity =
         timestampEpochMillis = timestamp.toEpochMilliseconds(),
         modelId = modelId,
         roleId = roleId,
-        temperature = temperature
+        temperature = temperature,
+        responseTimeMillis = responseTimeMillis,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        costUsd = costUsd
     )
 
 private fun ChatMessageEntity.toStructuredResponse(): AgentStructuredResponse? {

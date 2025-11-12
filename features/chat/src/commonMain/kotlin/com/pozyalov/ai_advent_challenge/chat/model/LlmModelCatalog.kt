@@ -6,7 +6,9 @@ data class LlmModelOption(
     val displayName: String,
     val description: String,
     val temperature: Double,
-    val temperatureLocked: Boolean = false
+    val temperatureLocked: Boolean = false,
+    val promptPricePer1KTokensUsd: Double? = null,
+    val completionPricePer1KTokensUsd: Double? = null
 )
 
 object LlmModelCatalog {
@@ -18,38 +20,50 @@ object LlmModelCatalog {
             displayName = "GPT-5 Mini",
             description = "Универсальная модель для продвинутых диалогов и проектирования",
             temperature = 1.0,
-            temperatureLocked = true
+            temperatureLocked = true,
+            promptPricePer1KTokensUsd = 0.01,
+            completionPricePer1KTokensUsd = 0.03
         ),
         LlmModelOption(
             id = "gpt-5-nano",
             displayName = "GPT-5 Nano",
             description = "Максимально экономичный вариант пятого поколения для быстрых подсказок",
             temperature = 1.0,
-            temperatureLocked = true
+            temperatureLocked = true,
+            promptPricePer1KTokensUsd = 0.004,
+            completionPricePer1KTokensUsd = 0.012
         ),
         LlmModelOption(
             id = "gpt-4.1",
             displayName = "GPT-4.1",
             description = "Флагманская точность для сложных требований и рассуждений",
-            temperature = 0.4
+            temperature = 0.4,
+            promptPricePer1KTokensUsd = 0.015,
+            completionPricePer1KTokensUsd = 0.06
         ),
         LlmModelOption(
             id = "gpt-4.1-mini",
             displayName = "GPT-4.1 Mini",
             description = "Облегчённая версия GPT-4.1 с оптимальным балансом цены и качества",
-            temperature = 0.4
+            temperature = 0.4,
+            promptPricePer1KTokensUsd = 0.003,
+            completionPricePer1KTokensUsd = 0.012
         ),
         LlmModelOption(
             id = "gpt-4.1-nano",
             displayName = "GPT-4.1 Nano",
             description = "Самый доступный представитель линейки 4.1 для быстрых итераций",
-            temperature = 0.4
+            temperature = 0.4,
+            promptPricePer1KTokensUsd = 0.0015,
+            completionPricePer1KTokensUsd = 0.006
         ),
         LlmModelOption(
             id = "gpt-4o-mini",
             displayName = "GPT-4o Mini",
             description = "Мультимодальная модель с быстрым откликом и умеренной стоимостью",
-            temperature = 0.4
+            temperature = 0.4,
+            promptPricePer1KTokensUsd = 0.003,
+            completionPricePer1KTokensUsd = 0.012
         )
     )
 

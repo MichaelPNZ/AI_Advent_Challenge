@@ -8,6 +8,20 @@ data class AgentStructuredResponse(
     val confidence: Double
 )
 
+data class AgentResponseMetrics(
+    val modelId: String,
+    val durationMillis: Long,
+    val promptTokens: Long?,
+    val completionTokens: Long?,
+    val totalTokens: Long?,
+    val costUsd: Double?
+)
+
+data class AgentReply(
+    val structured: AgentStructuredResponse,
+    val metrics: AgentResponseMetrics
+)
+
 enum class ChatRole {
     System,
     User,
@@ -27,7 +41,7 @@ interface ChatRepository {
         temperature: Double,
         systemPrompt: String,
         reasoningEffort: String
-    ): Result<AgentStructuredResponse>
+    ): Result<AgentReply>
     fun close()
 }
 
@@ -42,7 +56,7 @@ class GenerateChatReplyUseCase(
         temperature: Double,
         systemPrompt: String,
         reasoningEffort: String
-    ): Result<AgentStructuredResponse> =
+    ): Result<AgentReply> =
         repository.generateReply(history, model, temperature, systemPrompt, reasoningEffort)
 
     fun close() = repository.close()

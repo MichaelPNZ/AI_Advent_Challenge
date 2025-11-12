@@ -3,6 +3,7 @@
 package com.pozyalov.ai_advent_challenge.chat.component
 
 import com.aallam.openai.api.model.ModelId
+import com.pozyalov.ai_advent_challenge.chat.domain.AgentReply
 import com.pozyalov.ai_advent_challenge.chat.domain.AgentStructuredResponse
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatMessage
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRole
@@ -20,7 +21,9 @@ enum class MessageAuthor {
 
 enum class ConversationError {
     MissingApiKey,
-    Failure
+    Failure,
+    ContextLimit,
+    RateLimit
 }
 
 data class ConversationMessage(
@@ -33,7 +36,12 @@ data class ConversationMessage(
     val timestamp: Instant = Clock.System.now(),
     val modelId: String? = null,
     val roleId: String? = null,
-    val temperature: Double? = null
+    val temperature: Double? = null,
+    val responseTimeMillis: Long? = null,
+    val promptTokens: Long? = null,
+    val completionTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val costUsd: Double? = null
 ) {
     val isError: Boolean get() = error != null
 }
@@ -49,7 +57,7 @@ class ChatAgent(
         temperature: Double,
         systemPrompt: String,
         reasoningEffort: String
-    ): Result<AgentStructuredResponse> {
+    ): Result<AgentReply> {
         val domainHistory = history
             .filterNot { it.error != null && it.author == MessageAuthor.Agent }
             .map { it.toDomainMessage() }
@@ -66,7 +74,7 @@ class ChatAgent(
         )
 
         return generateReply(domainHistory, model, temperature, systemPrompt, reasoningEffort)
-            .onSuccess { chatLog("Parsed structured response: $it") }
+            .onSuccess { chatLog("Parsed structured response: ${it.structured}") }
             .onFailure { failure ->
                 chatLog("Failed to get structured response: ${failure.message.orEmpty()}")
             }

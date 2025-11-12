@@ -9,6 +9,8 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
+import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitCatalog
+import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningCatalog
@@ -18,6 +20,8 @@ import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
 import com.pozyalov.ai_advent_challenge.chat.ui.formatForDisplay
 import com.pozyalov.ai_advent_challenge.chat.util.chatLog
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
+import com.pozyalov.ai_advent_challenge.network.api.ContextLengthExceededException
+import com.pozyalov.ai_advent_challenge.network.api.RateLimitExceededException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,9 +41,12 @@ interface ChatComponent {
     fun onInputChange(text: String)
     fun onSend()
     fun onModelSelected(modelId: String)
+    fun onComparisonModelSelected(modelId: String?)
     fun onRoleSelected(roleId: String)
     fun onTemperatureSelected(optionId: String)
     fun onReasoningSelected(optionId: String)
+    fun onContextLimitSelected(optionId: String)
+    fun onContextLimitInputChange(value: String)
     fun onBack()
 
     data class Model(
@@ -49,6 +56,7 @@ interface ChatComponent {
         val isConfigured: Boolean,
         val availableModels: List<LlmModelOption>,
         val selectedModelId: String,
+        val comparisonModelId: String?,
         val availableRoles: List<ChatRoleOption>,
         val selectedRoleId: String,
         val availableTemperatures: List<TemperatureOption>,
@@ -56,7 +64,10 @@ interface ChatComponent {
         val availableReasoning: List<ReasoningOption>,
         val selectedReasoningId: String,
         val isTemperatureLocked: Boolean,
-        val lockedTemperatureValue: Double?
+        val lockedTemperatureValue: Double?,
+        val availableContextLimits: List<ContextLimitOption>,
+        val selectedContextLimitId: String,
+        val contextLimitInput: String
     )
 }
 
@@ -78,6 +89,7 @@ class ChatComponentImpl(
     private val roleOptions: List<ChatRoleOption> = ChatRoleCatalog.roles
     private val temperatureOptions: List<TemperatureOption> = TemperatureCatalog.options
     private val reasoningOptions: List<ReasoningOption> = ReasoningCatalog.options
+    private val contextLimitOptions: List<ContextLimitOption> = ContextLimitCatalog.options
 
     private val _model = MutableStateFlow(
         ChatComponent.Model(
@@ -87,6 +99,7 @@ class ChatComponentImpl(
             isConfigured = agent.isConfigured,
             availableModels = modelOptions,
             selectedModelId = LlmModelCatalog.DefaultModelId,
+            comparisonModelId = null,
             availableRoles = roleOptions,
             selectedRoleId = ChatRoleCatalog.defaultRole.id,
             availableTemperatures = temperatureOptions,
@@ -94,7 +107,10 @@ class ChatComponentImpl(
             availableReasoning = reasoningOptions,
             selectedReasoningId = ReasoningCatalog.default.id,
             isTemperatureLocked = defaultModelOption.temperatureLocked,
-            lockedTemperatureValue = defaultModelOption.temperature.takeIf { defaultModelOption.temperatureLocked }
+            lockedTemperatureValue = defaultModelOption.temperature.takeIf { defaultModelOption.temperatureLocked },
+            availableContextLimits = contextLimitOptions,
+            selectedContextLimitId = ContextLimitCatalog.default.id,
+            contextLimitInput = ""
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -126,10 +142,21 @@ class ChatComponentImpl(
         _model.update { current ->
             current.copy(
                 selectedModelId = selected.id,
+                comparisonModelId = current.comparisonModelId?.takeUnless { it == selected.id },
                 isConfigured = agent.isConfigured,
                 isTemperatureLocked = selected.temperatureLocked,
                 lockedTemperatureValue = selected.temperature.takeIf { selected.temperatureLocked }
             )
+        }
+    }
+
+    override fun onComparisonModelSelected(modelId: String?) {
+        _model.update { current ->
+            val normalized = modelId
+                ?.takeIf { candidate ->
+                    candidate != current.selectedModelId && modelOptions.any { it.id == candidate }
+                }
+            current.copy(comparisonModelId = normalized)
         }
     }
 
@@ -149,15 +176,38 @@ class ChatComponentImpl(
         _model.update { current -> current.copy(selectedReasoningId = optionId) }
     }
 
+    override fun onContextLimitSelected(optionId: String) {
+        if (contextLimitOptions.none { it.id == optionId }) return
+        _model.update { current ->
+            val option = contextLimitOptions.first { it.id == optionId }
+            current.copy(
+                selectedContextLimitId = optionId,
+                contextLimitInput = current.contextLimitInput.takeIf { option.requiresCustomValue } ?: ""
+            )
+        }
+    }
+
+    override fun onContextLimitInputChange(value: String) {
+        val filtered = value.filter { it.isDigit() }
+        _model.update { current -> current.copy(contextLimitInput = filtered) }
+    }
+
     override fun onSend() {
+        data class TargetRequest(
+            val option: LlmModelOption,
+            val temperature: Double
+        )
+
         var shouldSend = false
         var requestHistory: List<ConversationMessage>? = null
-        var targetModelId: String? = null
         var userMessageToPersist: ConversationMessage? = null
         var errorMessageToPersist: ConversationMessage? = null
         var selectedRoleOption: ChatRoleOption? = null
         var activeTemperatureValue: Double? = null
         var selectedReasoningOption: ReasoningOption? = null
+        var primaryModelOption: LlmModelOption? = null
+        var comparisonModelId: String? = null
+        var resolvedContextPaddingTokens: Int? = null
 
         _model.update { state ->
             val trimmed = state.input.trim()
@@ -175,9 +225,19 @@ class ChatComponentImpl(
             }
             val reasoningOption = reasoningOptions.firstOrNull { it.id == state.selectedReasoningId }
                 ?: ReasoningCatalog.default
+            val contextOption = contextLimitOptions.firstOrNull { it.id == state.selectedContextLimitId }
+                ?: ContextLimitCatalog.default
             selectedRoleOption = roleOption
             activeTemperatureValue = temperatureValue
             selectedReasoningOption = reasoningOption
+            primaryModelOption = selectedModel
+            comparisonModelId = state.comparisonModelId
+                ?.takeIf { candidate -> candidate != selectedModel.id && modelOptions.any { it.id == candidate } }
+            resolvedContextPaddingTokens = when {
+                contextOption.requiresCustomValue -> state.contextLimitInput.toIntOrNull()
+                    ?.coerceIn(0, MAX_PADDING_TOKENS)
+                else -> contextOption.paddingTokens
+            }
 
             val userMessage = ConversationMessage(
                 threadId = threadId,
@@ -207,9 +267,10 @@ class ChatComponentImpl(
                 )
             }
 
-            requestHistory = updatedMessages.filterNot { it.error != null && it.author == MessageAuthor.Agent }
+            val sanitizedHistory = updatedMessages.filterNot { it.error != null && it.author == MessageAuthor.Agent }
+
+            requestHistory = sanitizedHistory
             shouldSend = true
-            targetModelId = state.selectedModelId
 
             state.copy(
                 messages = updatedMessages,
@@ -225,56 +286,112 @@ class ChatComponentImpl(
         if (!shouldSend) return
 
         val history = requestHistory ?: return
-        val selectedModelId = targetModelId ?: LlmModelCatalog.DefaultModelId
-        val selectedModel = modelOptions.firstOrNull { it.id == selectedModelId } ?: defaultModelOption
-        val modelId = ModelId(selectedModel.id)
-
         val rolePrompt = selectedRoleOption ?: ChatRoleCatalog.defaultRole
-        val temperatureValue = activeTemperatureValue ?: TemperatureCatalog.default.value
         val reasoningOption = selectedReasoningOption ?: ReasoningCatalog.default
+        val baseTemperature = activeTemperatureValue ?: TemperatureCatalog.default.value
+        val primary = primaryModelOption ?: defaultModelOption
+        val comparison = comparisonModelId?.let { id -> modelOptions.firstOrNull { it.id == id } }
 
-        coroutineScope.launch {
-            val result = agent.reply(
-                history = history,
-                model = modelId,
-                temperature = temperatureValue,
-                systemPrompt = rolePrompt.systemPrompt,
-                reasoningEffort = reasoningOption.effort
-            )
-            val responseMessage = result.fold(
-                onSuccess = { reply ->
-                    ConversationMessage(
-                        threadId = threadId,
-                        author = MessageAuthor.Agent,
-                        text = reply.formatForDisplay(),
-                        structured = reply,
-                        modelId = modelId.id,
-                        roleId = rolePrompt.id,
-                        temperature = temperatureValue
-                    )
-                },
-                onFailure = { throwable ->
-                    ConversationMessage(
-                        threadId = threadId,
-                        author = MessageAuthor.Agent,
-                        text = throwable.message.orEmpty(),
-                        error = ConversationError.Failure,
-                        modelId = modelId.id,
-                        roleId = rolePrompt.id,
-                        temperature = temperatureValue
-                    )
-                }
-            )
+        chatLog("Prepared request history=${history.size}, paddingTokens=${resolvedContextPaddingTokens ?: 0}")
 
-            _model.update { state ->
-                state.copy(
-                    messages = state.messages + responseMessage,
-                    isSending = false,
-                    isConfigured = agent.isConfigured
+        val targets = buildList {
+            add(
+                TargetRequest(
+                    option = primary,
+                    temperature = if (primary.temperatureLocked) primary.temperature else baseTemperature
+                )
+            )
+            comparison?.let { option ->
+                add(
+                    TargetRequest(
+                        option = option,
+                        temperature = if (option.temperatureLocked) option.temperature else baseTemperature
+                    )
                 )
             }
+        }
 
-            persistMessage(responseMessage)
+        coroutineScope.launch {
+            val effectiveHistory = runCatching {
+                appendPadding(history, resolvedContextPaddingTokens)
+            }.getOrElse { error ->
+                chatLog("Failed to apply padding: ${error.message.orEmpty()}")
+                val failureMessage = ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.Agent,
+                    text = error.displayMessage("Не удалось подготовить запрос: "),
+                    error = ConversationError.Failure,
+                    roleId = rolePrompt.id,
+                    temperature = baseTemperature
+                )
+                emitAgentMessage(failureMessage, finalizeSending = true)
+                return@launch
+            }
+            chatLog("Effective request history size=${effectiveHistory.size}")
+            try {
+                for (target in targets) {
+                    chatLog("Sending request via ${target.option.id} (temperature=${target.temperature})")
+                    val modelId = ModelId(target.option.id)
+                    val result = agent.reply(
+                        history = effectiveHistory,
+                        model = modelId,
+                        temperature = target.temperature,
+                        systemPrompt = rolePrompt.systemPrompt,
+                        reasoningEffort = reasoningOption.effort
+                    )
+                    val responseMessage = result.fold(
+                        onSuccess = { reply ->
+                            ConversationMessage(
+                                threadId = threadId,
+                                author = MessageAuthor.Agent,
+                                text = reply.structured.formatForDisplay(),
+                                structured = reply.structured,
+                                modelId = modelId.id,
+                                roleId = rolePrompt.id,
+                                temperature = target.temperature,
+                                responseTimeMillis = reply.metrics.durationMillis,
+                                promptTokens = reply.metrics.promptTokens,
+                                completionTokens = reply.metrics.completionTokens,
+                                totalTokens = reply.metrics.totalTokens,
+                                costUsd = reply.metrics.costUsd
+                            )
+                        },
+                        onFailure = { throwable ->
+                            chatLog("Request via ${modelId.id} failed: ${throwable.message.orEmpty()}")
+                            val errorType = when (throwable) {
+                                is ContextLengthExceededException -> ConversationError.ContextLimit
+                                is RateLimitExceededException -> ConversationError.RateLimit
+                                else -> ConversationError.Failure
+                            }
+                            ConversationMessage(
+                                threadId = threadId,
+                                author = MessageAuthor.Agent,
+                                text = throwable.displayMessage(),
+                                error = errorType,
+                                modelId = modelId.id,
+                                roleId = rolePrompt.id,
+                                temperature = target.temperature
+                            )
+                        }
+                    )
+
+                    val shouldStop = responseMessage.error != null
+                    emitAgentMessage(
+                        responseMessage,
+                        finalizeSending = shouldStop
+                    )
+                    if (shouldStop) {
+                        break
+                    }
+                }
+            } finally {
+                _model.update { state ->
+                    state.copy(
+                        isSending = false,
+                        isConfigured = agent.isConfigured
+                    )
+                }
+            }
         }
     }
 
@@ -332,5 +449,65 @@ class ChatComponentImpl(
 
     override fun onBack() {
         onClose()
+    }
+
+    private fun emitAgentMessage(
+        message: ConversationMessage,
+        finalizeSending: Boolean
+    ) {
+        _model.update { state ->
+            state.copy(
+                messages = state.messages + message,
+                isConfigured = agent.isConfigured,
+                isSending = if (finalizeSending) false else state.isSending
+            )
+        }
+        persistMessage(message)
+    }
+
+    private fun Throwable?.displayMessage(prefix: String? = null): String {
+        val text = when (this) {
+            null -> null
+            else -> this.message?.takeIf { it.isNotBlank() } ?: this.cause?.message
+        }
+        val base = text?.takeIf { it.isNotBlank() } ?: "Произошла ошибка при обращении к модели."
+        return prefix?.let { it + base } ?: base
+    }
+
+    private fun appendPadding(
+        history: List<ConversationMessage>,
+        paddingTokens: Int?
+    ): List<ConversationMessage> {
+        val tokens = paddingTokens?.coerceIn(0, MAX_PADDING_TOKENS) ?: return history
+        if (tokens <= 0) return history
+        val paddingMessage = createPaddingMessage(tokens) ?: return history
+        return history + paddingMessage
+    }
+
+    private fun createPaddingMessage(tokens: Int): ConversationMessage? {
+        if (tokens <= 0) return null
+        val desiredChars = (tokens.toLong() * APPROX_CHARS_PER_TOKEN)
+            .coerceAtMost(MAX_PADDING_CHARS.toLong())
+            .toInt()
+        if (desiredChars <= 0) return null
+        val chunk = "CONTEXT_PADDING_SEQUENCE_0123456789 "
+        val builder = StringBuilder(desiredChars)
+        while (builder.length < desiredChars) {
+            builder.append(chunk)
+        }
+        if (builder.length > desiredChars) {
+            builder.setLength(desiredChars)
+        }
+        return ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.User,
+            text = builder.toString()
+        )
+    }
+
+    private companion object {
+        private const val APPROX_CHARS_PER_TOKEN = 4
+        private const val MAX_PADDING_CHARS = 2_000_000
+        private const val MAX_PADDING_TOKENS = 50_000
     }
 }

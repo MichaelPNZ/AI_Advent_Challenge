@@ -2,18 +2,22 @@ package com.pozyalov.ai_advent_challenge.network.api
 
 import com.aallam.openai.api.chat.ChatCompletionRequest
 import com.aallam.openai.api.chat.ChatMessage
-import com.aallam.openai.api.chat.ChatRole
 import com.aallam.openai.api.chat.ChatResponseFormat
+import com.aallam.openai.api.chat.ChatRole
 import com.aallam.openai.api.chat.Effort
+import com.aallam.openai.api.core.Usage
+import com.aallam.openai.api.exception.OpenAIAPIException
 import com.aallam.openai.api.http.Timeout
 import com.aallam.openai.api.logging.LogLevel
 import com.aallam.openai.api.model.ModelId
 import com.aallam.openai.client.LoggingConfig
 import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.ProxyConfig
+import com.aallam.openai.client.RetryStrategy
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 class AiApi(
     apiKey: String,
@@ -32,7 +36,8 @@ class AiApi(
                 request = 90.seconds,
                 connect = 30.seconds
             ),
-            proxy = proxy
+            proxy = proxy,
+            retry = RetryStrategy(0),
         )
     }
 
@@ -42,9 +47,10 @@ class AiApi(
         messages: List<AiMessage>,
         model: ModelId? = null,
         temperature: Double? = null,
-        reasoningEffort: String? = null
-    ): Result<String> {
-        val client = openAiClient ?: return Result.failure(IllegalStateException("OpenAI API key is missing"))
+        reasoningEffort: String? = null,
+    ): Result<AiCompletionResult> {
+        val client = openAiClient
+            ?: return Result.failure(IllegalStateException("OpenAI API key is missing"))
         val targetModel = model ?: defaultModel
         val targetTemperature = temperature?.coerceIn(0.0, 2.0) ?: DEFAULT_TEMPERATURE
 
@@ -58,6 +64,7 @@ class AiApi(
 
         return runCatching {
             val effort = reasoningEffort?.let(::Effort)
+            val timer = TimeSource.Monotonic.markNow()
             val completion = client.chatCompletion(
                 ChatCompletionRequest(
                     model = targetModel,
@@ -71,22 +78,38 @@ class AiApi(
                     responseFormat = ChatResponseFormat.JsonObject,
                 )
             )
+            val elapsed = timer.elapsedNow().inWholeMilliseconds
 
             val choice = completion.choices.firstOrNull()
                 ?: error("Model returned no choices")
 
             val content = choice.message.content
                 ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-
-            content ?: error(
+                ?.takeIf { it.isNotEmpty() } ?: error(
                 "Model did not return a response (finish reason: ${choice.finishReason?.value ?: "unknown"})"
             )
+
+            AiCompletionResult(
+                content = content,
+                modelId = completion.model.id,
+                durationMillis = elapsed,
+                usage = completion.usage?.toAiUsage()
+            )
         }.recoverCatching { throwable ->
-            if (throwable.isTimeoutError()) {
-                throw IllegalStateException("Время ожидания ответа от OpenAI истекло. Попробуйте повторить запрос позже.")
-            } else {
-                throw throwable
+            when {
+                throwable is OpenAIAPIException && throwable.statusCode == 429 -> {
+                    println("[AiApi] throwable is OpenAIAPIException && throwable.statusCode == 429")
+                    val detail = throwable.error.detail
+                    throw RateLimitExceededException(
+                        code = detail?.code,
+                        type = detail?.type,
+                        message = detail?.message ?: "Запрос превышает лимиты (HTTP 429)",
+                        cause = throwable
+                    )
+                }
+
+                throwable.isTimeoutError() -> throw IllegalStateException("Время ожидания ответа от OpenAI истекло. Попробуйте повторить запрос позже.")
+                else -> throw throwable
             }
         }
     }
@@ -95,7 +118,7 @@ class AiApi(
         openAiClient?.close()
     }
 
-    private companion object {
+    companion object {
         val DEFAULT_REASONING_EFFORT: Effort = Effort("low")
         const val DEFAULT_TEMPERATURE: Double = 0.8
     }
@@ -118,6 +141,15 @@ class AiApi(
             }
         }
     }
+
+    private fun Throwable?.isContextLengthError(): Boolean {
+        if (this == null) return false
+        val message = message?.lowercase()?.trim() ?: ""
+        if (message.contains("maximum context length")) return true
+        if (message.contains("context_length_exceeded")) return true
+        val next = cause
+        return next != null && next !== this && next.isContextLengthError()
+    }
 }
 
 enum class AiRole {
@@ -128,7 +160,7 @@ enum class AiRole {
 
 data class AiMessage(
     val role: AiRole,
-    val text: String
+    val text: String,
 )
 
 private fun AiMessage.toChatMessage(): ChatMessage {
@@ -139,3 +171,35 @@ private fun AiMessage.toChatMessage(): ChatMessage {
     }
     return ChatMessage(role = role, content = text)
 }
+
+data class AiCompletionResult(
+    val content: String,
+    val modelId: String,
+    val durationMillis: Long,
+    val usage: AiCompletionUsage?,
+)
+
+data class AiCompletionUsage(
+    val promptTokens: Long?,
+    val completionTokens: Long?,
+    val totalTokens: Long?,
+)
+
+private fun Usage.toAiUsage(): AiCompletionUsage =
+    AiCompletionUsage(
+        promptTokens = promptTokens?.toLong(),
+        completionTokens = completionTokens?.toLong(),
+        totalTokens = totalTokens?.toLong()
+    )
+
+class ContextLengthExceededException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
+
+class RateLimitExceededException(
+    val code: String?,
+    val type: String?,
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)

@@ -69,3 +69,49 @@ object ReasoningCatalog {
 
     val default: ReasoningOption = options[0]
 }
+
+data class ContextLimitOption(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val paddingTokens: Int?,
+    val requiresCustomValue: Boolean = false
+)
+
+object ContextLimitCatalog {
+    val options: List<ContextLimitOption> = listOf(
+        ContextLimitOption(
+            id = "context_none",
+            displayName = "Не добавлять нагрузку",
+            description = "Отправлять запрос как есть",
+            paddingTokens = null
+        ),
+        ContextLimitOption(
+            id = "context_pad_32k",
+            displayName = "+8 000 токенов",
+            description = "Добавить ~8k фиктивных токенов для мягкой нагрузки",
+            paddingTokens = 8_000
+        ),
+        ContextLimitOption(
+            id = "context_pad_64k",
+            displayName = "+16 000 токенов",
+            description = "Умеренная нагрузка для проверки лимитов",
+            paddingTokens = 16_000
+        ),
+        ContextLimitOption(
+            id = "context_pad_128k",
+            displayName = "+32 000 токенов",
+            description = "Агрессивная нагрузка, быстро приведёт к rate limit",
+            paddingTokens = 32_000
+        ),
+        ContextLimitOption(
+            id = "context_pad_custom",
+            displayName = "Свое значение",
+            description = "Укажите точное количество токенов, которое нужно добавить",
+            paddingTokens = null,
+            requiresCustomValue = true
+        )
+    )
+
+    val default: ContextLimitOption = options.first()
+}

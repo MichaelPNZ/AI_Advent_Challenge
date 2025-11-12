@@ -69,6 +69,7 @@ import com.pozyalov.ai_advent_challenge.chat.component.ConversationError
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
+import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
@@ -76,6 +77,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
+import kotlin.math.round
 import kotlin.time.ExperimentalTime
 
 @Composable
@@ -111,6 +113,10 @@ fun ChatScreen(
         focusManager.clearFocus(force = true)
     }
 
+    val promptTokenDeltas = remember(model.messages) {
+        calculatePromptTokenDeltas(model.messages)
+    }
+
     if (showSettings) {
         ChatSettingsDialog(
             isDark = isDark,
@@ -119,6 +125,8 @@ fun ChatScreen(
             models = model.availableModels,
             selectedModelId = model.selectedModelId,
             onModelSelected = component::onModelSelected,
+            comparisonModelId = model.comparisonModelId,
+            onComparisonModelSelected = component::onComparisonModelSelected,
             roles = model.availableRoles,
             selectedRoleId = model.selectedRoleId,
             onRoleSelected = component::onRoleSelected,
@@ -129,7 +137,12 @@ fun ChatScreen(
             onTemperatureSelected = component::onTemperatureSelected,
             reasoningOptions = model.availableReasoning,
             selectedReasoningId = model.selectedReasoningId,
-            onReasoningSelected = component::onReasoningSelected
+            onReasoningSelected = component::onReasoningSelected,
+            contextLimits = model.availableContextLimits,
+            selectedContextLimitId = model.selectedContextLimitId,
+            onContextLimitSelected = component::onContextLimitSelected,
+            contextLimitInput = model.contextLimitInput,
+            onContextLimitInputChange = component::onContextLimitInputChange
         )
     }
 
@@ -208,12 +221,14 @@ fun ChatScreen(
                         items(model.messages, key = { it.id }) { message ->
                             val temperatureLabel = message.temperature?.let { "T=${it.formatTemperatureValue()}" }
                             val roleLabel = message.roleId?.let { roleTitleLookup[it] ?: it }
+                            val promptTokensActual = promptTokenDeltas[message.id]
                             ChatMessageBubble(
                                 message = message,
                                 missingKeyText = missingKeyText,
                                 defaultErrorText = errorText,
                                 temperatureLabel = temperatureLabel,
                                 roleLabel = roleLabel,
+                                promptTokensActual = promptTokensActual,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -266,13 +281,21 @@ private fun ChatMessageBubble(
     defaultErrorText: String,
     temperatureLabel: String?,
     roleLabel: String?,
+    promptTokensActual: Long?,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val displayText = when (message.error) {
         ConversationError.MissingApiKey -> missingKeyText
+        ConversationError.RateLimit -> message.text.ifBlank {
+            "Превышен лимит запросов OpenAI. Подождите и попробуйте снова."
+        }
+        ConversationError.ContextLimit -> message.text.ifBlank {
+            "Превышен выбранный лимит контекста. Уменьшите историю или снижайте нагрузку."
+        }
         ConversationError.Failure -> message.text.ifBlank { defaultErrorText }
         null -> message.text
+        else -> message.text
     }
     val (containerColor, contentColor) = when {
         message.error != null -> colors.errorContainer to colors.onErrorContainer
@@ -284,9 +307,10 @@ private fun ChatMessageBubble(
         modifier = modifier,
         horizontalArrangement = if (message.author == MessageAuthor.User) Arrangement.End else Arrangement.Start
     ) {
-        val metaLine = message.metaLine(
+        val metaEntries = message.metaEntries(
             temperatureLabel = temperatureLabel,
-            roleLabel = roleLabel
+            roleLabel = roleLabel,
+            promptTokensActual = promptTokensActual
         )
         val metaColor = when {
             message.error != null -> colors.onErrorContainer
@@ -311,11 +335,19 @@ private fun ChatMessageBubble(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                Text(
-                    text = metaLine,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = metaColor
-                )
+                if (metaEntries.isNotEmpty()) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        metaEntries.forEach { entry ->
+                            Text(
+                                text = "${entry.label}: ${entry.value}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = metaColor
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -329,6 +361,8 @@ private fun ChatSettingsDialog(
     models: List<LlmModelOption>,
     selectedModelId: String,
     onModelSelected: (String) -> Unit,
+    comparisonModelId: String?,
+    onComparisonModelSelected: (String?) -> Unit,
     roles: List<ChatRoleOption>,
     selectedRoleId: String,
     onRoleSelected: (String) -> Unit,
@@ -340,6 +374,11 @@ private fun ChatSettingsDialog(
     reasoningOptions: List<ReasoningOption>,
     selectedReasoningId: String,
     onReasoningSelected: (String) -> Unit,
+    contextLimits: List<ContextLimitOption>,
+    selectedContextLimitId: String,
+    onContextLimitSelected: (String) -> Unit,
+    contextLimitInput: String,
+    onContextLimitInputChange: (String) -> Unit,
 ) {
     val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
     val selectedModelName = models.firstOrNull { it.id == selectedModelId }?.displayName ?: "выбранной модели"
@@ -382,6 +421,41 @@ private fun ChatSettingsDialog(
                     optionDescription = { it.description },
                     onSelect = { onModelSelected(it.id) }
                 )
+                val comparisonSelectedId = comparisonModelId ?: COMPARISON_DISABLED_ID
+                val comparisonOptions = buildList {
+                    add(
+                        ComparisonModelOption(
+                            id = COMPARISON_DISABLED_ID,
+                            title = "Без сравнения",
+                            description = "Отправлять запрос только в выбранную модель"
+                        )
+                    )
+                    models.filter { it.id != selectedModelId }
+                        .forEach { option ->
+                            add(
+                                ComparisonModelOption(
+                                    id = option.id,
+                                    title = option.displayName,
+                                    description = option.description
+                                )
+                            )
+                        }
+                }
+                SettingsDropdown(
+                    label = "Сравнение моделей",
+                    selectedId = comparisonSelectedId,
+                    options = comparisonOptions,
+                    optionId = { it.id },
+                    optionTitle = { it.title },
+                    optionDescription = { it.description },
+                    onSelect = { option ->
+                        if (option.id == COMPARISON_DISABLED_ID) {
+                            onComparisonModelSelected(null)
+                        } else {
+                            onComparisonModelSelected(option.id)
+                        }
+                    }
+                )
                 SettingsDropdown(
                     label = "Роль",
                     selectedId = selectedRoleId,
@@ -417,6 +491,26 @@ private fun ChatSettingsDialog(
                     optionDescription = { it.description },
                     onSelect = { onReasoningSelected(it.id) }
                 )
+                SettingsDropdown(
+                    label = "Ограничение контекста",
+                    selectedId = selectedContextLimitId,
+                    options = contextLimits,
+                    optionId = { it.id },
+                    optionTitle = { it.displayName },
+                    optionDescription = { it.description },
+                    onSelect = { onContextLimitSelected(it.id) }
+                )
+                val selectedContextOption = contextLimits.firstOrNull { it.id == selectedContextLimitId }
+                if (selectedContextOption?.requiresCustomValue == true) {
+                    OutlinedTextField(
+                        value = contextLimitInput,
+                        onValueChange = onContextLimitInputChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Свое значение (токены)") },
+                        placeholder = { Text("например, 150000") },
+                        singleLine = true
+                    )
+                }
             }
         }
     )
@@ -574,8 +668,15 @@ private data class ChatThemeOption(
     val isDark: Boolean
 )
 
+private data class ComparisonModelOption(
+    val id: String,
+    val title: String,
+    val description: String?
+)
+
 private const val THEME_LIGHT_ID = "theme_light"
 private const val THEME_DARK_ID = "theme_dark"
+private const val COMPARISON_DISABLED_ID = "comparison_none"
 
 private val chatThemeOptions = listOf(
     ChatThemeOption(
@@ -592,19 +693,105 @@ private val chatThemeOptions = listOf(
     )
 )
 
-private fun ConversationMessage.metaLine(
+private data class MessageMetaEntry(
+    val label: String,
+    val value: String
+)
+
+private fun ConversationMessage.metaEntries(
     temperatureLabel: String?,
-    roleLabel: String?
-): String {
+    roleLabel: String?,
+    promptTokensActual: Long?
+): List<MessageMetaEntry> {
     val local = timestamp.toLocalDateTime(TimeZone.currentSystemDefault())
-    val parts = buildList {
-        modelId?.let { add(it) }
-        temperatureLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
-        roleLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
-        add(local.formatDate())
-        add(local.formatTime())
+    return buildList {
+        modelId?.let { add(MessageMetaEntry(label = "Модель", value = it)) }
+        responseTimeMillis
+            ?.takeIf { it > 0 }
+            ?.let { add(MessageMetaEntry(label = "Время", value = it.formatMillisAsSeconds())) }
+        tokensLabel(promptTokensActual)
+            ?.let { add(MessageMetaEntry(label = "Токены", value = it)) }
+        costUsd
+            ?.takeIf { it > 0.0 }
+            ?.let { add(MessageMetaEntry(label = "Стоимость", value = "$${it.formatCurrency()}")) }
+        temperatureLabel
+            ?.takeIf { it.isNotBlank() }
+            ?.let { add(MessageMetaEntry(label = "Температура", value = it)) }
+        roleLabel
+            ?.takeIf { it.isNotBlank() }
+            ?.let { add(MessageMetaEntry(label = "Роль", value = it)) }
+        add(MessageMetaEntry(label = "Дата", value = local.formatDate()))
+        add(MessageMetaEntry(label = "Время", value = local.formatTime()))
     }
-    return parts.joinToString(separator = " · ")
+}
+
+private fun ConversationMessage.tokensLabel(promptTokensActual: Long?): String? {
+    val prompt = promptTokensActual ?: promptTokens
+    val completion = completionTokens
+    val total = when {
+        promptTokensActual != null && completion != null -> promptTokensActual + completion
+        totalTokens != null -> totalTokens
+        prompt != null && completion != null -> prompt + completion
+        else -> null
+    }
+    return when {
+        prompt != null && completion != null -> "prompt=$prompt · completion=$completion ток."
+        total != null -> "$total ток."
+        prompt != null -> "prompt=$prompt ток."
+        completion != null -> "completion=$completion ток."
+        else -> null
+    }
+}
+
+private fun Long.formatMillisAsSeconds(): String {
+    val seconds = this / 1_000.0
+    return "${seconds.formatDecimal(2)}s"
+}
+
+private fun Double.formatCurrency(): String = formatDecimal(4)
+
+private fun Double.formatDecimal(decimals: Int): String {
+    if (decimals <= 0) {
+        return toLong().toString()
+    }
+    val scale = pow10(decimals)
+    val rounded = round(this * scale) / scale
+    val raw = rounded.toString()
+    return if (raw.contains('.')) {
+        raw.trimEnd('0').trimEnd('.')
+    } else {
+        raw
+    }
+}
+
+private fun pow10(exp: Int): Double {
+    var result = 1.0
+    repeat(exp) { result *= 10.0 }
+    return result
+}
+
+private fun calculatePromptTokenDeltas(
+    messages: List<ConversationMessage>
+): Map<Long, Long> {
+    if (messages.isEmpty()) return emptyMap()
+    val sorted = messages.sortedBy { it.timestamp }
+    val lastPromptTokens = mutableMapOf<String, Long>()
+    val deltas = mutableMapOf<Long, Long>()
+    for (message in sorted) {
+        if (message.author != MessageAuthor.Agent) continue
+        val model = message.modelId ?: continue
+        val rawPrompt = message.promptTokens ?: continue
+        val previous = lastPromptTokens[model]
+        val delta = if (previous == null) {
+            rawPrompt
+        } else {
+            val diff = rawPrompt - previous
+            if (diff > 0) diff else rawPrompt
+        }
+        deltas[message.id] = delta
+        lastPromptTokens[model] = rawPrompt
+    }
+    return deltas
 }
 
 private fun kotlinx.datetime.LocalDateTime.formatDate(): String {
