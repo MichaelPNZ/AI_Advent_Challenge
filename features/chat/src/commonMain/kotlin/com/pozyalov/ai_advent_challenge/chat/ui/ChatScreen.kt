@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -115,6 +118,20 @@ fun ChatScreen(
 
     val promptTokenDeltas = remember(model.messages) {
         calculatePromptTokenDeltas(model.messages)
+    }
+
+    val contextUsageInfo = remember(
+        model.messages,
+        model.availableContextLimits,
+        model.selectedContextLimitId,
+        model.contextLimitInput
+    ) {
+        calculateContextUsage(
+            messages = model.messages,
+            contextLimits = model.availableContextLimits,
+            selectedContextLimitId = model.selectedContextLimitId,
+            contextLimitInput = model.contextLimitInput
+        )
     }
 
     if (showSettings) {
@@ -198,6 +215,13 @@ fun ChatScreen(
                 }
             }
 
+            contextUsageInfo?.let { usage ->
+                ContextUsageIndicator(
+                    info = usage,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -234,14 +258,6 @@ fun ChatScreen(
                         }
                     }
                 }
-            }
-
-            if (model.isSending) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                )
             }
 
             Row(
@@ -285,17 +301,20 @@ private fun ChatMessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val displayText = when (message.error) {
-        ConversationError.MissingApiKey -> missingKeyText
-        ConversationError.RateLimit -> message.text.ifBlank {
-            "Превышен лимит запросов OpenAI. Подождите и попробуйте снова."
+    val displayText = when {
+        message.isThinking -> message.text.ifBlank { "Думаю" }
+        else -> when (message.error) {
+            ConversationError.MissingApiKey -> missingKeyText
+            ConversationError.RateLimit -> message.text.ifBlank {
+                "Превышен лимит запросов OpenAI. Подождите и попробуйте снова."
+            }
+            ConversationError.ContextLimit -> message.text.ifBlank {
+                "Превышен выбранный лимит контекста. Уменьшите историю или снижайте нагрузку."
+            }
+            ConversationError.Failure -> message.text.ifBlank { defaultErrorText }
+            null -> message.text
+            else -> message.text
         }
-        ConversationError.ContextLimit -> message.text.ifBlank {
-            "Превышен выбранный лимит контекста. Уменьшите историю или снижайте нагрузку."
-        }
-        ConversationError.Failure -> message.text.ifBlank { defaultErrorText }
-        null -> message.text
-        else -> message.text
     }
     val (containerColor, contentColor) = when {
         message.error != null -> colors.errorContainer to colors.onErrorContainer
@@ -329,28 +348,126 @@ private fun ChatMessageBubble(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SelectionContainer {
-                    Text(
-                        text = displayText,
-                        style = MaterialTheme.typography.bodyMedium
+                if (message.isThinking) {
+                    ThinkingMessageContent(
+                        label = displayText,
+                        dotColor = contentColor,
+                        textColor = contentColor
                     )
-                }
-                if (metaEntries.isNotEmpty()) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        metaEntries.forEach { entry ->
-                            Text(
-                                text = "${entry.label}: ${entry.value}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = metaColor
-                            )
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = displayText,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    if (metaEntries.isNotEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            metaEntries.forEach { entry ->
+                                Text(
+                                    text = "${entry.label}: ${entry.value}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = metaColor
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ThinkingMessageContent(
+    label: String,
+    dotColor: Color,
+    textColor: Color
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = textColor
+        )
+        CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            color = dotColor,
+            strokeWidth = 2.dp
+        )
+    }
+}
+
+@Composable
+private fun ContextUsageIndicator(
+    info: ContextUsageInfo,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Контекст",
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = "${info.percent.formatDecimal(1)}% (${info.usedTokens} / ${info.limitTokens} ток.)",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            LinearProgressIndicator(
+                progress = (info.percent.coerceAtMost(100.0) / 100.0).toFloat(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+private data class ContextUsageInfo(
+    val usedTokens: Long,
+    val limitTokens: Long,
+    val percent: Double
+)
+
+private fun calculateContextUsage(
+    messages: List<ConversationMessage>,
+    contextLimits: List<ContextLimitOption>,
+    selectedContextLimitId: String,
+    contextLimitInput: String
+): ContextUsageInfo? {
+    val usedTokens = messages.asReversed()
+        .firstOrNull { message ->
+            message.author == MessageAuthor.Agent && !message.isThinking && message.totalTokens != null
+        }
+        ?.totalTokens
+        ?: return null
+    val selectedOption = contextLimits.firstOrNull { it.id == selectedContextLimitId }
+    val customLimit = selectedOption
+        ?.takeIf { it.requiresCustomValue }
+        ?.let { contextLimitInput.toLongOrNull()?.takeIf { amount -> amount > 0 } }
+    val limitTokens = customLimit
+        ?: selectedOption?.paddingTokens?.toLong()
+        ?: DEFAULT_CONTEXT_LIMIT_TOKENS
+    if (limitTokens <= 0L) return null
+    val percent = if (limitTokens == 0L) 0.0 else (usedTokens.toDouble() / limitTokens.toDouble()) * 100.0
+    return ContextUsageInfo(
+        usedTokens = usedTokens,
+        limitTokens = limitTokens,
+        percent = percent
+    )
 }
 
 @Composable
@@ -677,6 +794,7 @@ private data class ComparisonModelOption(
 private const val THEME_LIGHT_ID = "theme_light"
 private const val THEME_DARK_ID = "theme_dark"
 private const val COMPARISON_DISABLED_ID = "comparison_none"
+private const val DEFAULT_CONTEXT_LIMIT_TOKENS = 128_000L
 
 private val chatThemeOptions = listOf(
     ChatThemeOption(
@@ -778,7 +896,7 @@ private fun calculatePromptTokenDeltas(
     val lastPromptTokens = mutableMapOf<String, Long>()
     val deltas = mutableMapOf<Long, Long>()
     for (message in sorted) {
-        if (message.author != MessageAuthor.Agent) continue
+        if (message.author != MessageAuthor.Agent || message.isThinking) continue
         val model = message.modelId ?: continue
         val rawPrompt = message.promptTokens ?: continue
         val previous = lastPromptTokens[model]

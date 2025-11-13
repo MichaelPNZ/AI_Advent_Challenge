@@ -26,9 +26,10 @@ interface ChatHistoryDataSource {
 class InMemoryChatHistoryDataSource : ChatHistoryDataSource {
     private val mutex = Mutex()
     private val messages = mutableListOf<ConversationMessage>()
+    private val summarizer = ChatHistorySummarizer()
 
     override fun observeHistory(threadId: Long): Flow<List<ConversationMessage>> =
-        kotlinx.coroutines.flow.flow {
+        flow {
             emit(mutex.withLock {
                 messages.filter { it.threadId == threadId }.sortedBy { it.timestamp }
             })
@@ -42,6 +43,7 @@ class InMemoryChatHistoryDataSource : ChatHistoryDataSource {
             } else {
                 messages += message
             }
+            compressLocked(message.threadId)
         }
     }
 
@@ -55,16 +57,40 @@ class InMemoryChatHistoryDataSource : ChatHistoryDataSource {
                     this.messages += message
                 }
             }
+            messages.map { it.threadId }.distinct().forEach { threadId ->
+                compressLocked(threadId)
+            }
         }
     }
 
     override suspend fun clear(threadId: Long) {
         mutex.withLock { messages.removeAll { it.threadId == threadId } }
     }
+
+    private fun compressLocked(threadId: Long) {
+        while (true) {
+            val chunk = messages
+                .filter { it.threadId == threadId && !it.isSummary && !it.isThinking && !it.isArchived }
+                .sortedBy { it.timestamp }
+                .take(HistoryCompressionDefaults.CHUNK_SIZE)
+            if (chunk.size < HistoryCompressionDefaults.CHUNK_SIZE) {
+                return
+            }
+            val summary = summarizer.buildSummary(threadId, chunk)
+            val archivedIds = chunk.map { it.id }.toSet()
+            val updated = messages.map { message ->
+                if (archivedIds.contains(message.id)) message.copy(isArchived = true) else message
+            }
+            messages.clear()
+            messages.addAll(updated)
+            messages += summary
+        }
+    }
 }
 
-class RoomChatHistoryDataSource(
-    private val dao: ChatMessageDao
+class RoomChatHistoryDataSource internal constructor(
+    private val dao: ChatMessageDao,
+    private val compressor: ChatHistoryCompressor = ChatHistoryCompressor(dao)
 ) : ChatHistoryDataSource {
 
     override fun observeHistory(threadId: Long): Flow<List<ConversationMessage>> =
@@ -72,10 +98,15 @@ class RoomChatHistoryDataSource(
 
     override suspend fun saveMessage(message: ConversationMessage) {
         dao.upsert(message.toEntity())
+        compressor.compact(message.threadId)
     }
 
     override suspend fun saveMessages(messages: List<ConversationMessage>) {
+        if (messages.isEmpty()) return
         dao.upsert(messages.map { it.toEntity() })
+        messages.map { it.threadId }.distinct().forEach { threadId ->
+            compressor.compact(threadId)
+        }
     }
 
     override suspend fun clear(threadId: Long) {

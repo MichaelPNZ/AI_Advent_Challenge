@@ -20,4 +20,12 @@ interface ChatMessageDao {
 
     @Query("DELETE FROM chat_messages WHERE threadId = :threadId")
     suspend fun clear(threadId: Long)
+
+    @Query(
+        "SELECT * FROM chat_messages WHERE threadId = :threadId AND isSummary = 0 AND isThinking = 0 AND isArchived = 0 ORDER BY timestampEpochMillis ASC LIMIT :limit"
+    )
+    suspend fun getOldestNonSummary(threadId: Long, limit: Int): List<ChatMessageEntity>
+
+    @Query("UPDATE chat_messages SET isArchived = 1 WHERE id IN (:ids)")
+    suspend fun markArchived(ids: List<Long>)
 }

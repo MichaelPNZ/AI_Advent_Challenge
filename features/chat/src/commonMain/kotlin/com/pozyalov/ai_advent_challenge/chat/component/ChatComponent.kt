@@ -267,7 +267,9 @@ class ChatComponentImpl(
                 )
             }
 
-            val sanitizedHistory = updatedMessages.filterNot { it.error != null && it.author == MessageAuthor.Agent }
+            val sanitizedHistory = updatedMessages.filterNot {
+                (it.error != null && it.author == MessageAuthor.Agent) || it.isArchived
+            }
 
             requestHistory = sanitizedHistory
             shouldSend = true
@@ -332,6 +334,17 @@ class ChatComponentImpl(
                 for (target in targets) {
                     chatLog("Sending request via ${target.option.id} (temperature=${target.temperature})")
                     val modelId = ModelId(target.option.id)
+                    val thinkingMessage = ConversationMessage(
+                        threadId = threadId,
+                        author = MessageAuthor.Agent,
+                        text = "Думаю",
+                        roleId = rolePrompt.id,
+                        temperature = target.temperature,
+                        modelId = modelId.id,
+                        isThinking = true
+                    )
+                    emitAgentMessage(thinkingMessage, finalizeSending = false)
+
                     val result = agent.reply(
                         history = effectiveHistory,
                         model = modelId,
@@ -375,9 +388,13 @@ class ChatComponentImpl(
                         }
                     )
 
-                    val shouldStop = responseMessage.error != null
-                    emitAgentMessage(
-                        responseMessage,
+                    val finalMessage = responseMessage.copy(
+                        id = thinkingMessage.id,
+                        isThinking = false
+                    )
+                    val shouldStop = finalMessage.error != null
+                    replaceAgentMessage(
+                        message = finalMessage,
                         finalizeSending = shouldStop
                     )
                     if (shouldStop) {
@@ -409,6 +426,9 @@ class ChatComponentImpl(
         coroutineScope.launch(Dispatchers.Default) {
             runCatching {
                 historyStorage.saveMessage(message)
+                if (message.isThinking) {
+                    return@runCatching
+                }
                 val preview = message.text.take(160).takeIf { it.isNotBlank() }
                 val titleUpdate = when {
                     message.author == MessageAuthor.User && message.text.isNotBlank() -> message.text.take(60)
@@ -458,6 +478,23 @@ class ChatComponentImpl(
         _model.update { state ->
             state.copy(
                 messages = state.messages + message,
+                isConfigured = agent.isConfigured,
+                isSending = if (finalizeSending) false else state.isSending
+            )
+        }
+        persistMessage(message)
+    }
+
+    private fun replaceAgentMessage(
+        message: ConversationMessage,
+        finalizeSending: Boolean
+    ) {
+        _model.update { state ->
+            val updatedMessages = state.messages.map { current ->
+                if (current.id == message.id) message else current
+            }
+            state.copy(
+                messages = updatedMessages,
                 isConfigured = agent.isConfigured,
                 isSending = if (finalizeSending) false else state.isSending
             )

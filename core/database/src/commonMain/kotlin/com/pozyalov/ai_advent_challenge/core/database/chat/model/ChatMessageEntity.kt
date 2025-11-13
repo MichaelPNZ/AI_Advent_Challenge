@@ -1,5 +1,6 @@
 package com.pozyalov.ai_advent_challenge.core.database.chat.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -9,6 +10,9 @@ data class ChatMessageEntity(
     @PrimaryKey val id: Long,
     val author: String,
     val text: String,
+    @ColumnInfo(defaultValue = "0") val isSummary: Boolean,
+    @ColumnInfo(defaultValue = "0") val isThinking: Boolean,
+    @ColumnInfo(defaultValue = "0") val isArchived: Boolean,
     val structuredTitle: String?,
     val structuredSummary: String?,
     val structuredConfidence: Double?,

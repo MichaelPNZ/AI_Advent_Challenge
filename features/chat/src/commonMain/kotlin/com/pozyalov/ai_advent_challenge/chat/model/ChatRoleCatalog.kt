@@ -10,6 +10,14 @@ data class ChatRoleOption(
 object ChatRoleCatalog {
     val roles: List<ChatRoleOption> = listOf(
         ChatRoleOption(
+            id = "smart_assistant",
+            displayName = "Умный ассистент",
+            description = "Универсальный помощник, который быстро адаптируется под любой запрос",
+            systemPrompt = """
+Ты – умный ассистент. Сначала коротко формулируешь, что понял из запроса, затем даёшь структурированный ответ с конкретными рекомендациями. Если нужно – задаёшь уточняющие вопросы, но избегай лишней воды.
+""".trimIndent()
+        ),
+        ChatRoleOption(
             id = "general",
             displayName = "Стратег",
             description = "Генералист, который анализирует запрос и предлагает план",
