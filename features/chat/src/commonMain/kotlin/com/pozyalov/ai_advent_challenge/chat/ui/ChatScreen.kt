@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -39,6 +40,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +60,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,14 +74,17 @@ import com.pozyalov.ai_advent_challenge.chat.component.ChatComponent
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationError
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryEntry
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
+import io.github.vinceglb.filekit.core.FileKit
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.round
 import kotlin.time.ExperimentalTime
@@ -218,6 +224,19 @@ fun ChatScreen(
             contextUsageInfo?.let { usage ->
                 ContextUsageIndicator(
                     info = usage,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            ExportControls(
+                state = model.exportState,
+                onExport = component::onExportChat,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (model.memories.isNotEmpty()) {
+                MemoryTimeline(
+                    entries = model.memories,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -429,8 +448,105 @@ private fun ContextUsageIndicator(
                 color = MaterialTheme.colorScheme.onSurface
             )
             LinearProgressIndicator(
-                progress = (info.percent.coerceAtMost(100.0) / 100.0).toFloat(),
+                progress = { (info.percent.coerceAtMost(100.0) / 100.0).toFloat() },
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemoryTimeline(
+    entries: List<AgentMemoryEntry>,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Внешняя память",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            entries.forEach { entry ->
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = entry.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = entry.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = entry.formatMemoryTimestamp(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExportControls(
+    state: ChatComponent.ExportState,
+    onExport: (String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = {
+                    scope.launch {
+                        val folder = FileKit.pickDirectory()
+                        onExport(folder?.path)
+                    }
+                },
+                enabled = !state.isInProgress
+            ) {
+                Text(text = "Сохранить чат в JSON")
+            }
+            if (state.isInProgress) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+        state.lastExportPath?.let { path ->
+            Text(
+                text = "Сохранено: $path",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        state.error?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
             )
         }
     }
@@ -441,6 +557,14 @@ private data class ContextUsageInfo(
     val limitTokens: Long,
     val percent: Double
 )
+
+private fun AgentMemoryEntry.createdLocalDateTime() =
+    createdAt.toLocalDateTime(TimeZone.currentSystemDefault())
+
+private fun AgentMemoryEntry.formatMemoryTimestamp(): String {
+    val local = createdLocalDateTime()
+    return "${local.day.twoDigits()}.${local.month.number.twoDigits()} ${local.hour.twoDigits()}:${local.minute.twoDigits()}"
+}
 
 private fun calculateContextUsage(
     messages: List<ConversationMessage>,
@@ -896,7 +1020,7 @@ private fun calculatePromptTokenDeltas(
     val lastPromptTokens = mutableMapOf<String, Long>()
     val deltas = mutableMapOf<Long, Long>()
     for (message in sorted) {
-        if (message.author != MessageAuthor.Agent || message.isThinking) continue
+        if (message.author != MessageAuthor.Agent || message.isThinking || message.isArchived) continue
         val model = message.modelId ?: continue
         val rawPrompt = message.promptTokens ?: continue
         val previous = lastPromptTokens[model]

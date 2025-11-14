@@ -5,8 +5,11 @@ import com.pozyalov.ai_advent_challenge.chat.component.ChatAgent
 import com.pozyalov.ai_advent_challenge.chat.component.ChatComponent
 import com.pozyalov.ai_advent_challenge.chat.component.ChatComponentImpl
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryExporter
 import com.pozyalov.ai_advent_challenge.chat.data.ChatRepositoryImpl
 import com.pozyalov.ai_advent_challenge.chat.data.RoomChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryStore
+import com.pozyalov.ai_advent_challenge.chat.data.memory.RoomAgentMemoryStore
 import com.pozyalov.ai_advent_challenge.chat.domain.ChatRepository
 import com.pozyalov.ai_advent_challenge.chat.domain.GenerateChatReplyUseCase
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
@@ -22,7 +25,9 @@ fun chatFeatureModule(
     includes(networkModule(apiKey))
     includes(chatDatabaseModule)
 
-    single<ChatHistoryDataSource> { RoomChatHistoryDataSource(dao = get()) }
+    single<AgentMemoryStore> { RoomAgentMemoryStore(dao = get()) }
+    single { ChatHistoryExporter() }
+    single<ChatHistoryDataSource> { RoomChatHistoryDataSource(dao = get(), memoryStore = get()) }
     single<ChatThreadDataSource> { RoomChatThreadDataSource(dao = get()) }
 
     factory<ChatRepository> { ChatRepositoryImpl(api = get()) }
@@ -33,7 +38,9 @@ fun chatFeatureModule(
         ChatComponentFactory(
             agentProvider = { get() },
             chatHistory = get(),
-            chatThreads = get()
+            chatThreads = get(),
+            memoryStore = get(),
+            exporter = get()
         )
     }
 }
@@ -41,7 +48,9 @@ fun chatFeatureModule(
 class ChatComponentFactory(
     private val agentProvider: () -> ChatAgent,
     private val chatHistory: ChatHistoryDataSource,
-    private val chatThreads: ChatThreadDataSource
+    private val chatThreads: ChatThreadDataSource,
+    private val memoryStore: AgentMemoryStore,
+    private val exporter: ChatHistoryExporter
 ) {
     fun create(
         componentContext: ComponentContext,
@@ -52,6 +61,8 @@ class ChatComponentFactory(
         chatAgent = agentProvider(),
         chatHistory = chatHistory,
         chatThreads = chatThreads,
+        agentMemoryStore = memoryStore,
+        historyExporter = exporter,
         threadId = threadId,
         onClose = onClose
     )

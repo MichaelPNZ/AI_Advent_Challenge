@@ -6,6 +6,7 @@ import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.core.database.chat.dao.ChatMessageDao
 import com.pozyalov.ai_advent_challenge.chat.data.local.toDomain
 import com.pozyalov.ai_advent_challenge.chat.data.local.toEntity
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryStore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.ExperimentalTime
@@ -90,7 +91,11 @@ class InMemoryChatHistoryDataSource : ChatHistoryDataSource {
 
 class RoomChatHistoryDataSource internal constructor(
     private val dao: ChatMessageDao,
-    private val compressor: ChatHistoryCompressor = ChatHistoryCompressor(dao)
+    private val memoryStore: AgentMemoryStore? = null,
+    private val compressor: ChatHistoryCompressor = ChatHistoryCompressor(
+        dao = dao,
+        memoryStore = memoryStore
+    )
 ) : ChatHistoryDataSource {
 
     override fun observeHistory(threadId: Long): Flow<List<ConversationMessage>> =

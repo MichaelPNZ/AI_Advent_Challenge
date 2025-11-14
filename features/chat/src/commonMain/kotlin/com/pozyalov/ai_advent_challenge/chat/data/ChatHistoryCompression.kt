@@ -6,7 +6,9 @@ import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
 import com.pozyalov.ai_advent_challenge.chat.data.local.toDomain
 import com.pozyalov.ai_advent_challenge.chat.data.local.toEntity
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryStore
 import com.pozyalov.ai_advent_challenge.core.database.chat.dao.ChatMessageDao
+import kotlinx.datetime.Instant as KxInstant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Clock
@@ -65,7 +67,8 @@ internal class ChatHistorySummarizer(
 internal class ChatHistoryCompressor(
     private val dao: ChatMessageDao,
     private val summarizer: ChatHistorySummarizer = ChatHistorySummarizer(),
-    private val chunkSize: Int = HistoryCompressionDefaults.CHUNK_SIZE
+    private val chunkSize: Int = HistoryCompressionDefaults.CHUNK_SIZE,
+    private val memoryStore: AgentMemoryStore? = null
 ) {
     private val mutex = Mutex()
 
@@ -85,6 +88,12 @@ internal class ChatHistoryCompressor(
                     dao.markArchived(ids)
                 }
                 dao.upsert(summary.toEntity())
+                memoryStore?.saveSummary(
+                    threadId = threadId,
+                    title = "Сводка ${batch.size} сообщений",
+                    content = summary.text,
+                    createdAt = KxInstant.fromEpochMilliseconds(summary.timestamp.toEpochMilliseconds())
+                )
             }
         }
     }

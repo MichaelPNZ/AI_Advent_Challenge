@@ -39,6 +39,8 @@ kotlin {
             implementation(libs.decompose.compose)
             implementation(project(":core:network"))
             implementation(project(":core:database"))
+            implementation(libs.okio)
+            implementation(libs.filekit)
         }
 
         androidMain.dependencies {

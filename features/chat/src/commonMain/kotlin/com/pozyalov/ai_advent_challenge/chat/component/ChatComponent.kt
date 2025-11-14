@@ -7,6 +7,9 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.backhandler.BackCallback
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
+import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryExporter
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryEntry
+import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryStore
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitCatalog
@@ -47,6 +50,7 @@ interface ChatComponent {
     fun onReasoningSelected(optionId: String)
     fun onContextLimitSelected(optionId: String)
     fun onContextLimitInputChange(value: String)
+    fun onExportChat(directoryPath: String?)
     fun onBack()
 
     data class Model(
@@ -67,7 +71,15 @@ interface ChatComponent {
         val lockedTemperatureValue: Double?,
         val availableContextLimits: List<ContextLimitOption>,
         val selectedContextLimitId: String,
-        val contextLimitInput: String
+        val contextLimitInput: String,
+        val memories: List<AgentMemoryEntry>,
+        val exportState: ExportState
+    )
+
+    data class ExportState(
+        val isInProgress: Boolean = false,
+        val lastExportPath: String? = null,
+        val error: String? = null
     )
 }
 
@@ -76,6 +88,8 @@ class ChatComponentImpl(
     chatAgent: ChatAgent,
     chatHistory: ChatHistoryDataSource,
     chatThreads: ChatThreadDataSource,
+    private val historyExporter: ChatHistoryExporter,
+    agentMemoryStore: AgentMemoryStore,
     private val threadId: Long,
     private val onClose: () -> Unit
 ) : ChatComponent, ComponentContext by componentContext {
@@ -84,6 +98,7 @@ class ChatComponentImpl(
     private val agent = chatAgent
     private val historyStorage = chatHistory
     private val threadStorage = chatThreads
+    private val memoryStore = agentMemoryStore
     private val modelOptions: List<LlmModelOption> = LlmModelCatalog.models
     private val defaultModelOption: LlmModelOption = modelOptions.first { it.id == LlmModelCatalog.DefaultModelId }
     private val roleOptions: List<ChatRoleOption> = ChatRoleCatalog.roles
@@ -110,7 +125,9 @@ class ChatComponentImpl(
             lockedTemperatureValue = defaultModelOption.temperature.takeIf { defaultModelOption.temperatureLocked },
             availableContextLimits = contextLimitOptions,
             selectedContextLimitId = ContextLimitCatalog.default.id,
-            contextLimitInput = ""
+            contextLimitInput = "",
+            memories = emptyList(),
+            exportState = ChatComponent.ExportState()
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -120,6 +137,7 @@ class ChatComponentImpl(
     init {
         ensureThreadExists()
         collectHistory()
+        collectMemories()
         backHandler.register(backCallback)
         lifecycle.doOnDestroy {
             coroutineScope.cancel()
@@ -190,6 +208,46 @@ class ChatComponentImpl(
     override fun onContextLimitInputChange(value: String) {
         val filtered = value.filter { it.isDigit() }
         _model.update { current -> current.copy(contextLimitInput = filtered) }
+    }
+
+    override fun onExportChat(directoryPath: String?) {
+        coroutineScope.launch(Dispatchers.Default) {
+            val currentMessages = _model.value.messages
+            val currentMemories = _model.value.memories
+            _model.update { state ->
+                state.copy(exportState = state.exportState.copy(isInProgress = true, error = null))
+            }
+            runCatching {
+                historyExporter.export(
+                    threadId = threadId,
+                    messages = currentMessages,
+                    memories = currentMemories,
+                    directoryOverride = directoryPath
+                )
+            }.onSuccess { result ->
+                _model.update { state ->
+                    state.copy(
+                        exportState = ChatComponent.ExportState(
+                            isInProgress = false,
+                            lastExportPath = result.path,
+                            error = null
+                        )
+                    )
+                }
+            }.onFailure { failure ->
+                val message = failure.message ?: "Не удалось сохранить чат"
+                _model.update { state ->
+                    state.copy(
+                        exportState = ChatComponent.ExportState(
+                            isInProgress = false,
+                            lastExportPath = null,
+                            error = message
+                        )
+                    )
+                }
+                chatLog("Failed to export chat: $message")
+            }
+        }
     }
 
     override fun onSend() {
@@ -418,6 +476,16 @@ class ChatComponentImpl(
                 .catch { chatLog("Failed to observe history: ${it.message.orEmpty()}") }
                 .collect { history ->
                     _model.update { it.copy(messages = history) }
+                }
+        }
+    }
+
+    private fun collectMemories() {
+        coroutineScope.launch {
+            memoryStore.observe(threadId)
+                .catch { chatLog("Failed to observe memory: ${it.message.orEmpty()}") }
+                .collect { memories ->
+                    _model.update { it.copy(memories = memories) }
                 }
         }
     }

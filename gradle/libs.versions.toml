@@ -25,6 +25,8 @@ kstore = "1.0.0"
 buildKonfig = "0.15.1"
 openaiClient = "4.0.1"
 sqliteBundled = "2.5.2"
+filekit = "0.8.0"
+okio = "3.9.0"
 
 [libraries]
 
@@ -62,6 +64,8 @@ kstore-file = { module = "io.github.xxfast:kstore-file", version.ref = "kstore" 
 kstore-storage = { module = "io.github.xxfast:kstore-storage", version.ref = "kstore" }
 openai-client = { module = "com.aallam.openai:openai-client", version.ref = "openaiClient" }
 sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqliteBundled" }
+filekit = { module = "io.github.vinceglb:filekit-compose", version.ref = "filekit" }
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 
 [plugins]
 
