@@ -23,6 +23,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.openai.client)
             implementation(libs.koin.core)
+            implementation(libs.mcpKotlinClient)
+            implementation(libs.mcpKotlinCore)
         }
 
         androidMain.dependencies {
@@ -33,6 +35,8 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.mcpKotlinClient)
+            implementation(libs.mcpKotlinCore)
         }
 
         iosMain.dependencies {

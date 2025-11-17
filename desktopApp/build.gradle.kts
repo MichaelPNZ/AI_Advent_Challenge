@@ -10,10 +10,12 @@ plugins {
 dependencies {
     implementation(project(":sharedUI"))
     implementation(project(":core:database"))
+    implementation(project(":core:network"))
     implementation(compose.ui)
     implementation(libs.koin.core)
     implementation(libs.room.runtime)
     implementation(libs.sqlite.bundled)
+    implementation(libs.kotlinx.coroutines.core)
 }
 
 compose.desktop {

@@ -10,6 +10,8 @@ captures
 .externalNativeBuild
 .cxx
 local.properties
+.env
+mcp/github-server/.env
 xcuserdata/
 Pods/
 *.jks

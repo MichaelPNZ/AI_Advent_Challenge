@@ -27,6 +27,7 @@ openaiClient = "4.0.1"
 sqliteBundled = "2.5.2"
 filekit = "0.8.0"
 okio = "3.9.0"
+mcp-kotlin = "0.7.7"
 
 [libraries]
 
@@ -66,6 +67,8 @@ openai-client = { module = "com.aallam.openai:openai-client", version.ref = "ope
 sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqliteBundled" }
 filekit = { module = "io.github.vinceglb:filekit-compose", version.ref = "filekit" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+mcpKotlinClient = { module = "io.modelcontextprotocol:kotlin-sdk-client", version.ref = "mcp-kotlin" }
+mcpKotlinCore = { module = "io.modelcontextprotocol:kotlin-sdk-core", version.ref = "mcp-kotlin" }
 
 [plugins]
 
