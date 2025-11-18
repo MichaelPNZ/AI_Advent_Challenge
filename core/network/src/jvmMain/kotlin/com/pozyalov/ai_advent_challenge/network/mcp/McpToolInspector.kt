@@ -1,9 +1,14 @@
 package com.pozyalov.ai_advent_challenge.network.mcp
 
 import io.modelcontextprotocol.kotlin.sdk.Implementation
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.CallToolResultBase
+import io.modelcontextprotocol.kotlin.sdk.CompatibilityCallToolResult
 import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
+import kotlinx.serialization.json.JsonObject
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -23,9 +28,12 @@ data class McpToolDescriptor(
     val name: String,
     val title: String?,
     val description: String?,
-    val argumentNames: Set<String>,
-    val requiredArguments: List<String>,
+    val inputSchema: Tool.Input,
+    val outputSchema: Tool.Output?,
+    val annotations: ToolAnnotations?,
 ) {
+    val argumentNames: Set<String> = inputSchema.properties.keys
+    val requiredArguments: List<String> = inputSchema.required ?: emptyList()
     val displayName: String = title ?: name
 }
 
@@ -53,41 +61,13 @@ class McpToolInspector(
         workingDirectory: File? = null,
         environment: Map<String, String> = emptyMap(),
         stderrLogger: (String) -> Unit = { line -> println("[mcp-server] $line") },
-    ): List<McpToolDescriptor> {
-        require(serverCommand.isNotEmpty()) { "serverCommand must not be empty" }
-
-        val processBuilder = ProcessBuilder(serverCommand)
-            .redirectErrorStream(false)
-        workingDirectory?.let(processBuilder::directory)
-        val env = processBuilder.environment()
-        environment.forEach { (key, value) -> env[key] = value }
-
-        val process = processBuilder.start()
-
-        val stderrForwarder = thread(
-            start = true,
-            isDaemon = true,
-            name = "mcp-server-stderr-${process.pid()}",
-        ) {
-            process.errorStream.bufferedReader().useLines { lines ->
-                lines.forEach(stderrLogger)
-            }
-        }
-
-        val transport = StdioClientTransport(
-            input = process.inputStream.asSource().buffered(),
-            output = process.outputStream.asSink().buffered(),
-        )
-        val client = Client(clientInfo = clientInfo)
-
-        return try {
-            client.connect(transport)
-            client.listTools().tools.map(Tool::toDescriptor)
-        } finally {
-            client.close()
-            process.destroy()
-            stderrForwarder.join(500)
-        }
+    ): List<McpToolDescriptor> = withClient(
+        serverCommand = serverCommand,
+        workingDirectory = workingDirectory,
+        environment = environment,
+        stderrLogger = stderrLogger,
+    ) { client ->
+        client.listTools().tools.map(Tool::toDescriptor)
     }
 
     /**
@@ -122,6 +102,65 @@ class McpToolInspector(
         }
     }
 
+    suspend fun callTool(
+        serverCommand: List<String>,
+        toolName: String,
+        arguments: JsonObject,
+        workingDirectory: File? = null,
+        environment: Map<String, String> = emptyMap(),
+        stderrLogger: (String) -> Unit = { line -> println("[mcp-server] $line") },
+    ): CallToolResult? = withClient(
+        serverCommand = serverCommand,
+        workingDirectory = workingDirectory,
+        environment = environment,
+        stderrLogger = stderrLogger,
+    ) { client ->
+        client.callTool(name = toolName, arguments = arguments)?.toStandardResult()
+    }
+
+    private suspend fun <T> withClient(
+        serverCommand: List<String>,
+        workingDirectory: File?,
+        environment: Map<String, String>,
+        stderrLogger: (String) -> Unit,
+        block: suspend (Client) -> T,
+    ): T {
+        require(serverCommand.isNotEmpty()) { "serverCommand must not be empty" }
+
+        val processBuilder = ProcessBuilder(serverCommand)
+            .redirectErrorStream(false)
+        workingDirectory?.let(processBuilder::directory)
+        val env = processBuilder.environment()
+        environment.forEach { (key, value) -> env[key] = value }
+
+        val process = processBuilder.start()
+
+        val stderrForwarder = thread(
+            start = true,
+            isDaemon = true,
+            name = "mcp-server-stderr-${process.pid()}",
+        ) {
+            process.errorStream.bufferedReader().useLines { lines ->
+                lines.forEach(stderrLogger)
+            }
+        }
+
+        val transport = StdioClientTransport(
+            input = process.inputStream.asSource().buffered(),
+            output = process.outputStream.asSink().buffered(),
+        )
+        val client = Client(clientInfo = clientInfo)
+
+        return try {
+            client.connect(transport)
+            block(client)
+        } finally {
+            runCatching { client.close() }
+            process.destroy()
+            stderrForwarder.join(500)
+        }
+    }
+
     companion object {
         /**
          * Builds a full command for a script by guessing the interpreter from the file extension.
@@ -146,6 +185,17 @@ private fun Tool.toDescriptor(): McpToolDescriptor = McpToolDescriptor(
     name = name,
     title = annotations?.title ?: title,
     description = description,
-    argumentNames = inputSchema.properties?.keys ?: emptySet(),
-    requiredArguments = inputSchema.required ?: emptyList(),
+    inputSchema = inputSchema,
+    outputSchema = outputSchema,
+    annotations = annotations,
 )
+
+private fun CallToolResultBase.toStandardResult(): CallToolResult = when (this) {
+    is CallToolResult -> this
+    is CompatibilityCallToolResult -> CallToolResult(
+        content = content,
+        structuredContent = structuredContent,
+        isError = isError,
+        _meta = _meta,
+    )
+}

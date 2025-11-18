@@ -5,6 +5,8 @@ import com.aallam.openai.api.chat.ChatMessage
 import com.aallam.openai.api.chat.ChatResponseFormat
 import com.aallam.openai.api.chat.ChatRole
 import com.aallam.openai.api.chat.Effort
+import com.aallam.openai.api.chat.ToolCall
+import com.aallam.openai.api.chat.ToolChoice
 import com.aallam.openai.api.core.Usage
 import com.aallam.openai.api.exception.OpenAIAPIException
 import com.aallam.openai.api.http.Timeout
@@ -14,8 +16,14 @@ import com.aallam.openai.client.LoggingConfig
 import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.ProxyConfig
 import com.aallam.openai.client.RetryStrategy
+import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -41,6 +49,11 @@ class AiApi(
         )
     }
 
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
+
     val isConfigured: Boolean get() = openAiClient != null
 
     suspend fun chatCompletion(
@@ -48,6 +61,7 @@ class AiApi(
         model: ModelId? = null,
         temperature: Double? = null,
         reasoningEffort: String? = null,
+        toolClient: TaskToolClient = TaskToolClient.None,
     ): Result<AiCompletionResult> {
         val client = openAiClient
             ?: return Result.failure(IllegalStateException("OpenAI API key is missing"))
@@ -63,38 +77,66 @@ class AiApi(
         }
 
         return runCatching {
+            val conversation = requestMessages.toMutableList()
             val effort = reasoningEffort?.let(::Effort)
-            val timer = TimeSource.Monotonic.markNow()
-            val completion = client.chatCompletion(
-                ChatCompletionRequest(
-                    model = targetModel,
-                    messages = requestMessages,
-                    reasoningEffort = when {
-                        !targetModel.supportsReasoningEffort() -> null
-                        effort != null -> effort
-                        else -> DEFAULT_REASONING_EFFORT
-                    },
-                    temperature = targetTemperature,
-                    responseFormat = ChatResponseFormat.JsonObject,
+            val declaredTools = toolClient.toolDefinitions.takeIf { it.isNotEmpty() }
+            val usageAggregator = UsageAggregator()
+            var totalDuration = 0L
+            var lastModelId = targetModel.id
+
+            while (true) {
+                val timer = TimeSource.Monotonic.markNow()
+                val completion = client.chatCompletion(
+                    ChatCompletionRequest(
+                        model = targetModel,
+                        messages = conversation,
+                        reasoningEffort = when {
+                            !targetModel.supportsReasoningEffort() -> null
+                            effort != null -> effort
+                            else -> DEFAULT_REASONING_EFFORT
+                        },
+                        temperature = targetTemperature,
+                        responseFormat = ChatResponseFormat.JsonObject,
+                        tools = declaredTools,
+                        toolChoice = declaredTools?.let { ToolChoice.Auto },
+                    )
                 )
-            )
-            val elapsed = timer.elapsedNow().inWholeMilliseconds
+                val elapsed = timer.elapsedNow().inWholeMilliseconds
+                totalDuration += elapsed
+                usageAggregator.add(completion.usage?.toAiUsage())
+                lastModelId = completion.model.id
 
-            val choice = completion.choices.firstOrNull()
-                ?: error("Model returned no choices")
+                val choice = completion.choices.firstOrNull()
+                    ?: error("Model returned no choices")
+                val assistantMessage = choice.message
+                val toolCalls = assistantMessage.toolCalls.orEmpty()
 
-            val content = choice.message.content
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() } ?: error(
-                "Model did not return a response (finish reason: ${choice.finishReason?.value ?: "unknown"})"
-            )
+                if (declaredTools != null && toolCalls.isNotEmpty()) {
+                    conversation += ChatMessage(
+                        role = ChatRole.Assistant,
+                        content = assistantMessage.content,
+                        toolCalls = toolCalls,
+                    )
+                    val toolResponses = processToolCalls(toolCalls, toolClient)
+                    conversation.addAll(toolResponses)
+                    continue
+                }
 
-            AiCompletionResult(
-                content = content,
-                modelId = completion.model.id,
-                durationMillis = elapsed,
-                usage = completion.usage?.toAiUsage()
-            )
+                val content = assistantMessage.content
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: error(
+                        "Model did not return a response (finish reason: ${choice.finishReason?.value ?: "unknown"})"
+                    )
+
+                return@runCatching AiCompletionResult(
+                    content = content,
+                    modelId = lastModelId,
+                    durationMillis = totalDuration,
+                    usage = usageAggregator.result(),
+                )
+            }
+            error("Model did not return a final response")
         }.recoverCatching { throwable ->
             when {
                 throwable is OpenAIAPIException && throwable.statusCode == 429 -> {
@@ -110,6 +152,40 @@ class AiApi(
 
                 throwable.isTimeoutError() -> throw IllegalStateException("Время ожидания ответа от OpenAI истекло. Попробуйте повторить запрос позже.")
                 else -> throw throwable
+            }
+        }
+    }
+
+    private suspend fun processToolCalls(
+        toolCalls: List<ToolCall>,
+        toolClient: TaskToolClient,
+    ): List<ChatMessage> = buildList {
+        toolCalls.filterIsInstance<ToolCall.Function>().forEach { call ->
+            val toolName = call.function.nameOrNull ?: return@forEach
+            val arguments = parseToolArguments(call)
+            val responseText = runCatching {
+                toolClient.execute(toolName, arguments)
+            }.fold(
+                onSuccess = { result ->
+                    result?.text?.takeIf { it.isNotBlank() }
+                        ?: "Инструмент $toolName вернул пустой ответ."
+                },
+                onFailure = { error ->
+                    "Ошибка вызова инструмента $toolName: ${error.message ?: error::class.simpleName}"
+                }
+            )
+            add(ChatMessage.Tool(content = responseText, toolCallId = call.id))
+        }
+    }
+
+    private fun parseToolArguments(call: ToolCall.Function): JsonObject {
+        val rawArguments = call.function.argumentsOrNull?.takeIf { it.isNotBlank() } ?: return buildJsonObject { }
+        return runCatching {
+            json.parseToJsonElement(rawArguments).jsonObject
+        }.getOrElse {
+            buildJsonObject {
+                put("rawArguments", JsonPrimitive(rawArguments))
+                put("parseError", JsonPrimitive(it.message ?: it::class.simpleName.orEmpty()))
             }
         }
     }
@@ -191,6 +267,33 @@ private fun Usage.toAiUsage(): AiCompletionUsage =
         completionTokens = completionTokens?.toLong(),
         totalTokens = totalTokens?.toLong()
     )
+
+private class UsageAggregator {
+    private var promptTokens: Long? = null
+    private var completionTokens: Long? = null
+    private var totalTokens: Long? = null
+
+    fun add(usage: AiCompletionUsage?) {
+        promptTokens = promptTokens.merge(usage?.promptTokens)
+        completionTokens = completionTokens.merge(usage?.completionTokens)
+        totalTokens = totalTokens.merge(usage?.totalTokens)
+    }
+
+    fun result(): AiCompletionUsage? {
+        if (promptTokens == null && completionTokens == null && totalTokens == null) return null
+        return AiCompletionUsage(
+            promptTokens = promptTokens,
+            completionTokens = completionTokens,
+            totalTokens = totalTokens
+        )
+    }
+
+    private fun Long?.merge(other: Long?): Long? = when {
+        this == null -> other
+        other == null -> this
+        else -> this + other
+    }
+}
 
 class ContextLengthExceededException(
     message: String,

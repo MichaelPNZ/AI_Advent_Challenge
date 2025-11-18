@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -80,6 +81,7 @@ import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitOption
 import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
+import com.pozyalov.ai_advent_challenge.chat.model.ChatToolOption
 import io.github.vinceglb.filekit.core.FileKit
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
@@ -165,7 +167,9 @@ fun ChatScreen(
             selectedContextLimitId = model.selectedContextLimitId,
             onContextLimitSelected = component::onContextLimitSelected,
             contextLimitInput = model.contextLimitInput,
-            onContextLimitInputChange = component::onContextLimitInputChange
+            onContextLimitInputChange = component::onContextLimitInputChange,
+            toolOptions = model.availableTools,
+            onToolToggle = component::onToolToggle
         )
     }
 
@@ -233,13 +237,6 @@ fun ChatScreen(
                 onExport = component::onExportChat,
                 modifier = Modifier.fillMaxWidth()
             )
-
-            if (model.memories.isNotEmpty()) {
-                MemoryTimeline(
-                    entries = model.memories,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
 
             Box(
                 modifier = Modifier
@@ -620,6 +617,8 @@ private fun ChatSettingsDialog(
     onContextLimitSelected: (String) -> Unit,
     contextLimitInput: String,
     onContextLimitInputChange: (String) -> Unit,
+    toolOptions: List<ChatToolOption>,
+    onToolToggle: (String, Boolean) -> Unit,
 ) {
     val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
     val selectedModelName = models.firstOrNull { it.id == selectedModelId }?.displayName ?: "выбранной модели"
@@ -706,6 +705,12 @@ private fun ChatSettingsDialog(
                     optionDescription = { it.description },
                     onSelect = { onRoleSelected(it.id) }
                 )
+                if (toolOptions.isNotEmpty()) {
+                    ToolToggleGroup(
+                        options = toolOptions,
+                        onToggle = onToolToggle
+                    )
+                }
                 if (isTemperatureLocked) {
                     LockedSetting(
                         label = "Температура",
@@ -861,6 +866,82 @@ private fun <T> SettingsDropdown(
 }
 
 @Composable
+private fun ToolToggleGroup(
+    options: List<ChatToolOption>,
+    onToggle: (String, Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Инструменты MCP",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                options.forEachIndexed { index, option ->
+                    ToolToggleRow(
+                        option = option,
+                        onToggle = { enabled -> onToggle(option.id, enabled) }
+                    )
+                    if (index < options.lastIndex) {
+                        Divider(color = MaterialTheme.colorScheme.surface, thickness = 0.5.dp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolToggleRow(
+    option: ChatToolOption,
+    onToggle: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = option.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            formatToolDescription(option)?.let { desc ->
+                Text(
+                    text = desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(
+            checked = option.isEnabled,
+            onCheckedChange = { onToggle(it) },
+            enabled = option.isAvailable
+        )
+    }
+}
+
+@Composable
 private fun LockedSetting(
     label: String,
     value: String,
@@ -900,6 +981,21 @@ private fun LockedSetting(
             }
         }
     }
+}
+
+private fun formatToolDescription(option: ChatToolOption): String? {
+    val parts = buildList {
+        option.description?.takeIf { it.isNotBlank() }?.let { add(it) }
+        if (option.toolNames.isNotEmpty()) {
+            add("Инструменты: ${option.toolNames.joinToString()}")
+        }
+        if (!option.isAvailable) {
+            add("Сервер недоступен — проверьте запуск MCP процесса.")
+        } else {
+            add(if (option.isEnabled) "Включено" else "Выключено")
+        }
+    }
+    return parts.joinToString("\n").ifBlank { null }
 }
 
 private data class ChatThemeOption(

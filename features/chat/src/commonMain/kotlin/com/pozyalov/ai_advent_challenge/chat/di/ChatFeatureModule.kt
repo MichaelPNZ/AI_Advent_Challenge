@@ -16,6 +16,9 @@ import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSo
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.RoomChatThreadDataSource
 import com.pozyalov.ai_advent_challenge.core.database.di.chatDatabaseModule
 import com.pozyalov.ai_advent_challenge.network.di.networkModule
+import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
+import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
+import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorStub
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -30,7 +33,10 @@ fun chatFeatureModule(
     single<ChatHistoryDataSource> { RoomChatHistoryDataSource(dao = get(), memoryStore = get()) }
     single<ChatThreadDataSource> { RoomChatThreadDataSource(dao = get()) }
 
-    factory<ChatRepository> { ChatRepositoryImpl(api = get()) }
+    single<TaskToolClient> { TaskToolClient.None }
+    single<ToolSelector> { ToolSelectorStub }
+
+    factory<ChatRepository> { ChatRepositoryImpl(api = get(), toolClient = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
     factory { ChatAgent(generateReply = get()) }
 
@@ -40,7 +46,8 @@ fun chatFeatureModule(
             chatHistory = get(),
             chatThreads = get(),
             memoryStore = get(),
-            exporter = get()
+            exporter = get(),
+            toolSelector = get()
         )
     }
 }
@@ -50,7 +57,8 @@ class ChatComponentFactory(
     private val chatHistory: ChatHistoryDataSource,
     private val chatThreads: ChatThreadDataSource,
     private val memoryStore: AgentMemoryStore,
-    private val exporter: ChatHistoryExporter
+    private val exporter: ChatHistoryExporter,
+    private val toolSelector: ToolSelector
 ) {
     fun create(
         componentContext: ComponentContext,
@@ -63,6 +71,7 @@ class ChatComponentFactory(
         chatThreads = chatThreads,
         agentMemoryStore = memoryStore,
         historyExporter = exporter,
+        toolSelector = toolSelector,
         threadId = threadId,
         onClose = onClose
     )

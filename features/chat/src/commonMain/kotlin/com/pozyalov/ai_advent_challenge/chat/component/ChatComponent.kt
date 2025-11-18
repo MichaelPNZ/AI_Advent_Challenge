@@ -25,6 +25,9 @@ import com.pozyalov.ai_advent_challenge.chat.util.chatLog
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
 import com.pozyalov.ai_advent_challenge.network.api.ContextLengthExceededException
 import com.pozyalov.ai_advent_challenge.network.api.RateLimitExceededException
+import com.pozyalov.ai_advent_challenge.chat.model.ChatToolOption
+import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
+import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,6 +53,7 @@ interface ChatComponent {
     fun onReasoningSelected(optionId: String)
     fun onContextLimitSelected(optionId: String)
     fun onContextLimitInputChange(value: String)
+    fun onToolToggle(toolId: String, enabled: Boolean)
     fun onExportChat(directoryPath: String?)
     fun onBack()
 
@@ -72,6 +76,7 @@ interface ChatComponent {
         val availableContextLimits: List<ContextLimitOption>,
         val selectedContextLimitId: String,
         val contextLimitInput: String,
+        val availableTools: List<ChatToolOption>,
         val memories: List<AgentMemoryEntry>,
         val exportState: ExportState
     )
@@ -89,6 +94,7 @@ class ChatComponentImpl(
     chatHistory: ChatHistoryDataSource,
     chatThreads: ChatThreadDataSource,
     private val historyExporter: ChatHistoryExporter,
+    private val toolSelector: ToolSelector,
     agentMemoryStore: AgentMemoryStore,
     private val threadId: Long,
     private val onClose: () -> Unit
@@ -126,6 +132,7 @@ class ChatComponentImpl(
             availableContextLimits = contextLimitOptions,
             selectedContextLimitId = ContextLimitCatalog.default.id,
             contextLimitInput = "",
+            availableTools = emptyList(),
             memories = emptyList(),
             exportState = ChatComponent.ExportState()
         )
@@ -138,6 +145,7 @@ class ChatComponentImpl(
         ensureThreadExists()
         collectHistory()
         collectMemories()
+        observeToolSelector()
         backHandler.register(backCallback)
         lifecycle.doOnDestroy {
             coroutineScope.cancel()
@@ -194,6 +202,10 @@ class ChatComponentImpl(
         _model.update { current -> current.copy(selectedReasoningId = optionId) }
     }
 
+    override fun onToolToggle(toolId: String, enabled: Boolean) {
+        toolSelector.setToolEnabled(toolId, enabled)
+    }
+
     override fun onContextLimitSelected(optionId: String) {
         if (contextLimitOptions.none { it.id == optionId }) return
         _model.update { current ->
@@ -204,6 +216,28 @@ class ChatComponentImpl(
             )
         }
     }
+
+    private fun observeToolSelector() {
+        coroutineScope.launch {
+            toolSelector.state.collect { state ->
+                _model.update { current ->
+                    current.copy(
+                        availableTools = state.options.map { it.toChatToolOption() }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun ToolSelectorOption.toChatToolOption(): ChatToolOption =
+        ChatToolOption(
+            id = id,
+            title = title,
+            description = description?.takeIf { it.isNotBlank() },
+            toolNames = toolNames,
+            isAvailable = isAvailable,
+            isEnabled = isEnabled
+        )
 
     override fun onContextLimitInputChange(value: String) {
         val filtered = value.filter { it.isDigit() }

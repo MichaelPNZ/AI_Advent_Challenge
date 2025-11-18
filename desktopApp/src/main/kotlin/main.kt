@@ -13,7 +13,7 @@ import kotlinx.coroutines.runBlocking
 
 private val MCP_SERVER_SCRIPT: String? =
     System.getenv("MCP_SERVER_SCRIPT")?.takeIf { it.isNotBlank() }
-        ?: "mcp/github-server/run-github-server.sh"
+        ?: "mcp/world-bank-server/run-world-bank-server.sh"
 
 fun main() {
     runBlocking { printMcpToolsIfConfigured() }
@@ -48,6 +48,7 @@ private suspend fun printMcpToolsIfConfigured() {
     }.onFailure { error ->
         println("Failed to list MCP tools: ${error.message}")
     }
+    System.setProperty("ai.advent.mcp.script", scriptFile.absolutePath)
 }
 
 private fun resolveScriptFile(path: String): File? {

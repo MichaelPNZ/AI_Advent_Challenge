@@ -13,6 +13,7 @@ import com.pozyalov.ai_advent_challenge.network.api.AiCompletionResult
 import com.pozyalov.ai_advent_challenge.network.api.AiCompletionUsage
 import com.pozyalov.ai_advent_challenge.network.api.AiMessage
 import com.pozyalov.ai_advent_challenge.network.api.AiRole
+import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -23,6 +24,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 class ChatRepositoryImpl(
     private val api: AiApi,
+    private val toolClient: TaskToolClient,
     private val json: Json = Json {
         encodeDefaults = false
         explicitNulls = false
@@ -45,8 +47,21 @@ class ChatRepositoryImpl(
     ): Result<AgentReply> {
         val sanitizedHistory = history.filter { it.content.isNotBlank() }
 
+        val toolPrompt = buildToolPrompt()
         val requestMessages = buildList {
-            add(AiMessage(role = AiRole.System, text = systemPrompt + RESPONSE_PROMPT))
+            val basePrompt = systemPrompt.takeUnless { it.isBlank() } ?: ""
+            val combinedPrompt = buildString {
+                if (basePrompt.isNotEmpty()) {
+                    append(basePrompt.trim())
+                    append("\n\n")
+                }
+                append(RESPONSE_PROMPT)
+                if (toolPrompt.isNotEmpty()) {
+                    append("\n\n")
+                    append(toolPrompt)
+                }
+            }
+            add(AiMessage(role = AiRole.System, text = combinedPrompt))
             sanitizedHistory.forEach { add(it.toAiMessage()) }
         }
 
@@ -54,7 +69,8 @@ class ChatRepositoryImpl(
             messages = requestMessages,
             model = model,
             temperature = temperature,
-            reasoningEffort = reasoningEffort
+            reasoningEffort = reasoningEffort,
+            toolClient = toolClient
         ).mapCatching { result ->
             val structured = parseStructuredResponse(result.content)
             AgentReply(
@@ -217,6 +233,23 @@ class ChatRepositoryImpl(
         val error: String,
         val reason: String,
     )
+
+    private fun buildToolPrompt(): String {
+        if (toolClient.toolDefinitions.isEmpty()) return ""
+        val builder = StringBuilder()
+        builder.appendLine("ИНСТРУМЕНТЫ:")
+        toolClient.toolDefinitions.forEach { tool ->
+            builder.append("- ")
+            builder.append(tool.function.name)
+            tool.function.description?.let { desc ->
+                builder.append(": ")
+                builder.append(desc)
+            }
+            builder.appendLine()
+        }
+        builder.append("Если нужно получить актуальные данные из этих источников, обязательно вызови соответствующий инструмент и используй его результат в ответе.")
+        return builder.toString()
+    }
 
     private companion object {
         private val JsonPrimitive.contentOrNull: String?

@@ -11,6 +11,7 @@ import org.koin.dsl.module
 fun initKoin(
     appModule: Module = module { },
 ) = startKoin {
+    allowOverride(true)
     modules(
         listOf(
             chatFeatureModule(apiKey = BuildKonfig.OPENAI_API_KEY),

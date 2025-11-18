@@ -40,3 +40,9 @@ compose.desktop {
         }
     }
 }
+
+afterEvaluate {
+    tasks.named("run") {
+        dependsOn(":mcp:worldBankServer:installDist")
+    }
+}
