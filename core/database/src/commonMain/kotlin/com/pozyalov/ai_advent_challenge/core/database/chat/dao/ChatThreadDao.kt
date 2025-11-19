@@ -15,6 +15,9 @@ interface ChatThreadDao {
     @Query("SELECT * FROM chat_threads WHERE id = :threadId LIMIT 1")
     suspend fun getThread(threadId: Long): ChatThreadEntity?
 
+    @Query("SELECT * FROM chat_threads ORDER BY updatedAtEpochMillis DESC")
+    suspend fun listThreads(): List<ChatThreadEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(thread: ChatThreadEntity)
 

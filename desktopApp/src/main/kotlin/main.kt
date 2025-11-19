@@ -11,12 +11,8 @@ import java.awt.Dimension
 import java.io.File
 import kotlinx.coroutines.runBlocking
 
-private val MCP_SERVER_SCRIPT: String? =
-    System.getenv("MCP_SERVER_SCRIPT")?.takeIf { it.isNotBlank() }
-        ?: "mcp/world-bank-server/run-world-bank-server.sh"
-
 fun main() {
-    runBlocking { printMcpToolsIfConfigured() }
+    runBlocking { configureMcpScripts() }
     initLogs()
     initKoin(appModule = desktopAppModule())
 
@@ -32,23 +28,45 @@ fun main() {
     }
 }
 
-private suspend fun printMcpToolsIfConfigured() {
-    val configuredPath = MCP_SERVER_SCRIPT?.takeIf { it.isNotBlank() } ?: return
+private suspend fun configureMcpScripts() {
+    configureScriptProperty(
+        property = "ai.advent.worldbank.mcp.script",
+        defaultPath = "mcp/world-bank-server/run-world-bank-server.sh",
+        printTools = true
+    )
+    configureScriptProperty(
+        property = "ai.advent.weather.mcp.script",
+        defaultPath = "mcp/weather-server/run-weather-server.sh"
+    )
+    configureScriptProperty(
+        property = "ai.advent.reminder.mcp.script",
+        defaultPath = "mcp/reminder-server/run-reminder-server.sh"
+    )
+}
+
+private suspend fun configureScriptProperty(
+    property: String,
+    defaultPath: String,
+    printTools: Boolean = false
+) {
+    val configuredPath = System.getProperty(property)
+        ?: System.getenv(property.replace('.', '_').uppercase())
+        ?: defaultPath
     val scriptFile = resolveScriptFile(configuredPath)
     if (scriptFile == null || !scriptFile.exists()) {
-        println("MCP server script not found. Checked path: ${scriptFile?.absolutePath ?: configuredPath}")
+        println("MCP server script not found for $property. Checked path: ${scriptFile?.absolutePath ?: configuredPath}")
         return
     }
-
-    runCatching {
-        McpToolInspector()
-            .printTools(
-                serverCommand = McpToolInspector.guessCommandForScript(scriptFile.absolutePath),
+    System.setProperty(property, scriptFile.absolutePath)
+    if (printTools) {
+        runCatching {
+            McpToolInspector().printTools(
+                serverCommand = McpToolInspector.guessCommandForScript(scriptFile.absolutePath)
             )
-    }.onFailure { error ->
-        println("Failed to list MCP tools: ${error.message}")
+        }.onFailure { error ->
+            println("Failed to list MCP tools: ${error.message}")
+        }
     }
-    System.setProperty("ai.advent.mcp.script", scriptFile.absolutePath)
 }
 
 private fun resolveScriptFile(path: String): File? {

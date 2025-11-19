@@ -7,10 +7,15 @@ import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ScriptedTaskToolClient(
@@ -56,21 +61,86 @@ class ScriptedTaskToolClient(
             }
         }.trim()
 
-        val structured = callResult.structuredContent
+        val structuredObject = callResult.structuredContent
             ?.takeIf { it.isNotEmpty() }
-            ?.let { json.encodeToString(JsonObject.serializer(), it) }
+        val structuredHumanReadable = structuredObject
+            ?.let { formatStructuredResult(it) }
 
-        val payload = buildString {
-            if (summary.isNotBlank()) append(summary)
-            structured?.let {
-                if (isNotEmpty()) append("\n")
-                append("structured: ")
-                append(it)
-            }
-        }.ifBlank { "Инструмент $toolName вернул пустой ответ." }
+        val payload = when {
+            structuredHumanReadable?.isNotBlank() == true -> structuredHumanReadable
+            summary.isNotBlank() -> summary
+            else -> "Инструмент $toolName вернул пустой ответ."
+        }
 
-        return TaskToolResult(text = payload)
+        return TaskToolResult(text = payload, structured = structuredObject)
     }
+
+    private fun formatStructuredResult(structured: JsonObject): String? {
+        val prettySummary = formatReminderSummary(structured)
+        if (prettySummary != null) return prettySummary
+        return runCatching { json.encodeToString(JsonObject.serializer(), structured) }.getOrNull()
+            ?.let { "Структура ответа:\n$it" }
+    }
+
+    private fun formatReminderSummary(structured: JsonObject): String? {
+        val overdue = structured["overdue"]?.asTaskList() ?: return null
+        val dueToday = structured["dueToday"]?.asTaskList() ?: return null
+        val upcoming = structured["upcoming"]?.asTaskList() ?: return null
+        val sections = buildList {
+            add(buildString {
+                appendLine("Сводка задач")
+                appendLine("Просрочено: ${overdue.size}")
+                appendLine("На сегодня: ${dueToday.size}")
+                appendLine("Ближайшие 7 дней: ${upcoming.size}")
+            }.trim())
+            add(formatTaskSection("Просрочено", overdue))
+            add(formatTaskSection("Сегодня", dueToday))
+            add(formatTaskSection("Ближайшие 7 дней", upcoming))
+        }.filter { it.isNotBlank() }
+        return sections.joinToString(separator = "\n\n").ifBlank { null }
+    }
+
+    private fun JsonElement.asTaskList(): List<ReminderTaskDisplay>? =
+        runCatching {
+            jsonArray.mapNotNull { element ->
+                val obj = element.jsonObject
+                val title = obj["title"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ReminderTaskDisplay(
+                    title = title,
+                    dueDate = obj["dueDate"]?.jsonPrimitive?.contentOrNull,
+                    description = obj["description"]?.jsonPrimitive?.contentOrNull,
+                    priority = obj["priority"]?.jsonPrimitive?.contentOrNull
+                )
+            }
+        }.getOrNull()
+
+    private fun formatTaskSection(title: String, tasks: List<ReminderTaskDisplay>): String =
+        if (tasks.isEmpty()) {
+            "$title: нет задач."
+        } else buildString {
+            appendLine(title)
+            tasks.forEach { task ->
+                append("• ")
+                append(task.title)
+                val details = listOfNotNull(
+                    task.description?.takeIf { it.isNotBlank() },
+                    task.dueDate?.takeIf { it.isNotBlank() }?.let { "до $it" },
+                    task.priority?.takeIf { it.isNotBlank() }?.let { "приоритет: $it" }
+                )
+                if (details.isNotEmpty()) {
+                    append(" — ")
+                    append(details.joinToString(separator = ", "))
+                }
+                appendLine()
+            }
+        }.trimEnd()
+
+    private data class ReminderTaskDisplay(
+        val title: String,
+        val dueDate: String?,
+        val description: String?,
+        val priority: String?
+    )
 
     private fun resolveScriptCommand(path: String): List<String>? {
         val file = File(path).takeIf { it.isAbsolute } ?: locateRelativePath(path)

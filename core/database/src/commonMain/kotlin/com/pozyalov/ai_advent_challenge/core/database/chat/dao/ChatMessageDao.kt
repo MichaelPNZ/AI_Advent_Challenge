@@ -28,4 +28,7 @@ interface ChatMessageDao {
 
     @Query("UPDATE chat_messages SET isArchived = 1 WHERE id IN (:ids)")
     suspend fun markArchived(ids: List<Long>)
+
+    @Query("SELECT * FROM chat_messages WHERE threadId = :threadId ORDER BY timestampEpochMillis ASC")
+    suspend fun getMessages(threadId: Long): List<ChatMessageEntity>
 }

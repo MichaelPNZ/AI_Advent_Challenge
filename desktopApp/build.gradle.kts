@@ -9,13 +9,17 @@ plugins {
 
 dependencies {
     implementation(project(":sharedUI"))
+    implementation(project(":features:chat"))
     implementation(project(":core:database"))
     implementation(project(":core:network"))
     implementation(compose.ui)
+    implementation(libs.kotlinx.datetime)
     implementation(libs.koin.core)
     implementation(libs.room.runtime)
     implementation(libs.sqlite.bundled)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.openai.client)
 }
 
 compose.desktop {
@@ -44,5 +48,8 @@ compose.desktop {
 afterEvaluate {
     tasks.named("run") {
         dependsOn(":mcp:worldBankServer:installDist")
+        dependsOn(":mcp:weatherServer:installDist")
+        dependsOn(":mcp:reminderServer:installDist")
+        dependsOn(":mcp:chatSummaryServer:installDist")
     }
 }

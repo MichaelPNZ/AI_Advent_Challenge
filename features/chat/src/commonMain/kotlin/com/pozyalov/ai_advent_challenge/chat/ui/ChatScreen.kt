@@ -75,6 +75,7 @@ import com.pozyalov.ai_advent_challenge.chat.component.ChatComponent
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationError
 import com.pozyalov.ai_advent_challenge.chat.component.ConversationMessage
 import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
+import com.pozyalov.ai_advent_challenge.chat.data.HistoryCompressionDefaults
 import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryEntry
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitOption
@@ -112,9 +113,13 @@ fun ChatScreen(
         model.availableRoles.associate { it.id to it.displayName }
     }
 
-    LaunchedEffect(model.messages.size) {
-        if (model.messages.isNotEmpty()) {
-            listState.animateScrollToItem(model.messages.lastIndex)
+    val displayedMessages = remember(model.messages) {
+        model.messages.filterNot { it.isHistorySummaryMessage() }
+    }
+
+    LaunchedEffect(displayedMessages.size) {
+        if (displayedMessages.isNotEmpty()) {
+            listState.animateScrollToItem(displayedMessages.lastIndex)
         }
     }
 
@@ -244,7 +249,7 @@ fun ChatScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.TopCenter
             ) {
-                if (model.messages.isEmpty()) {
+                if (displayedMessages.isEmpty()) {
                     Text(
                         text = emptyStateText,
                         textAlign = TextAlign.Center,
@@ -258,7 +263,7 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         state = listState
                     ) {
-                        items(model.messages, key = { it.id }) { message ->
+                        items(displayedMessages, key = { it.id }) { message ->
                             val temperatureLabel = message.temperature?.let { "T=${it.formatTemperatureValue()}" }
                             val roleLabel = message.roleId?.let { roleTitleLookup[it] ?: it }
                             val promptTokensActual = promptTokenDeltas[message.id]
@@ -1058,8 +1063,10 @@ private fun ConversationMessage.metaEntries(
         roleLabel
             ?.takeIf { it.isNotBlank() }
             ?.let { add(MessageMetaEntry(label = "Роль", value = it)) }
-        add(MessageMetaEntry(label = "Дата", value = local.formatDate()))
-        add(MessageMetaEntry(label = "Время", value = local.formatTime()))
+        if (!isReminderSummary()) {
+            add(MessageMetaEntry(label = "Дата", value = local.formatDate()))
+            add(MessageMetaEntry(label = "Время", value = local.formatTime()))
+        }
     }
 }
 
@@ -1087,6 +1094,14 @@ private fun Long.formatMillisAsSeconds(): String {
 }
 
 private fun Double.formatCurrency(): String = formatDecimal(4)
+
+private fun ConversationMessage.isReminderSummary(): Boolean =
+    modelId == "reminder" || threadId == 0L && text.startsWith("[Reminder]", ignoreCase = true)
+
+private fun ConversationMessage.isHistorySummaryMessage(): Boolean {
+    val localModelId = HistoryCompressionDefaults.summaryMetadata().first
+    return isSummary && modelId == localModelId
+}
 
 private fun Double.formatDecimal(decimals: Int): String {
     if (decimals <= 0) {

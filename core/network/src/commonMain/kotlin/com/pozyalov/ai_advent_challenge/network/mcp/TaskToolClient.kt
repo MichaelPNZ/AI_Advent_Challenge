@@ -17,6 +17,7 @@ interface TaskToolClient {
 
 data class TaskToolResult(
     val text: String,
+    val structured: JsonObject? = null,
 )
 
 data class ToolSelectorOption(

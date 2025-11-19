@@ -7,6 +7,10 @@ import com.pozyalov.ai_advent_challenge.network.mcp.ToolClientEntry
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.WeatherTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.WorldBankTaskToolClient
+import com.pozyalov.ai_advent_challenge.network.mcp.ReminderTaskToolClient
+import com.pozyalov.ai_advent_challenge.network.mcp.ChatSummaryTaskToolClient
+import com.pozyalov.ai_advent_challenge.reminder.ReminderNotificationPoller
+import com.pozyalov.ai_advent_challenge.summary.DailyChatSummaryPoller
 import org.koin.core.module.Module
 import org.koin.dsl.module
 import java.io.File
@@ -35,10 +39,38 @@ fun desktopAppModule(): Module = module {
                     description = "Краткий прогноз погоды для указанных координат.",
                     client = WeatherTaskToolClient(),
                     defaultEnabled = true
+                ),
+                ToolClientEntry(
+                    id = "reminder",
+                    title = "Reminder (задачи)",
+                    description = "Хранение задач и сводки по напоминаниям.",
+                    client = ReminderTaskToolClient(),
+                    defaultEnabled = true
+                ),
+                ToolClientEntry(
+                    id = "chat-summary",
+                    title = "Дневные сводки чатов",
+                    description = "Ежедневные дайджесты по каждому чату.",
+                    client = ChatSummaryTaskToolClient(),
+                    defaultEnabled = true
                 )
             )
         )
     } binds arrayOf(TaskToolClient::class, ToolSelector::class)
+    single(createdAtStart = true) {
+        ReminderNotificationPoller(
+            taskToolClient = get(),
+            chatHistory = get(),
+            chatThreads = get()
+        )
+    }
+    single(createdAtStart = true) {
+        DailyChatSummaryPoller(
+            taskToolClient = get(),
+            chatHistory = get(),
+            chatThreads = get()
+        )
+    }
 }
 
 private fun desktopChatDatabasePath(): String {
