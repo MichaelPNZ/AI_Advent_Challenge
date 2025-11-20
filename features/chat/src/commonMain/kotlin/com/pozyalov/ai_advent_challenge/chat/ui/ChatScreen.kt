@@ -36,7 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -83,6 +84,7 @@ import com.pozyalov.ai_advent_challenge.chat.model.LlmModelOption
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
 import com.pozyalov.ai_advent_challenge.chat.model.ChatToolOption
+import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor.Match as DocMatch
 import io.github.vinceglb.filekit.core.FileKit
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
@@ -103,6 +105,7 @@ fun ChatScreen(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
     var showSettings by remember { mutableStateOf(false) }
+    var showPipelineDialog by remember { mutableStateOf(false) }
 
     val emptyStateText = stringResource(Res.string.chat_empty_state)
     val missingKeyText = stringResource(Res.string.chat_api_key_missing)
@@ -178,6 +181,21 @@ fun ChatScreen(
         )
     }
 
+    if (showPipelineDialog) {
+        DocPipelineDialog(
+            matches = model.pipelineMatches,
+            isSearching = model.isPipelineSearching,
+            isRunning = model.isPipelineRunning,
+            errorMessage = model.pipelineError,
+            onDismiss = { showPipelineDialog = false },
+            onSearch = component::onPipelineSearch,
+            onSummarize = { index ->
+                component.onRunPipeline(index)
+                showPipelineDialog = false
+            }
+        )
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -197,6 +215,18 @@ fun ChatScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
                 actions = {
+                    if (model.isPipelineAvailable) {
+                        IconButton(
+                            onClick = { showPipelineDialog = true },
+                            enabled = !model.isPipelineRunning
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "Поиск по документам",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -501,6 +531,99 @@ private fun MemoryTimeline(
             }
         }
     }
+}
+
+@Composable
+private fun DocPipelineDialog(
+    matches: List<DocMatch>,
+    isSearching: Boolean,
+    isRunning: Boolean,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onSearch: (String) -> Unit,
+    onSummarize: (Int) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var selectedIndex by remember(matches) { mutableStateOf(if (matches.isNotEmpty()) 0 else -1) }
+    val resultsScrollState = rememberScrollState()
+    val canSearch = query.isNotBlank() && !isSearching && !isRunning
+    val canSummarize = selectedIndex in matches.indices && !isRunning && !isSearching
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = { onSummarize(selectedIndex) },
+                enabled = canSummarize
+            ) {
+                if (isRunning) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Суммаризировать")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        },
+        title = { Text("Документы → Сводка") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Поисковый запрос") },
+                    singleLine = true
+                )
+                Button(
+                    onClick = { onSearch(query) },
+                    enabled = canSearch
+                ) {
+                    if (isSearching) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Найти")
+                    }
+                }
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (matches.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Результаты:", style = MaterialTheme.typography.titleSmall)
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = 240.dp)
+                                .verticalScroll(resultsScrollState),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            matches.forEachIndexed { index, match ->
+                                val selected = index == selectedIndex
+                                Surface(
+                                    tonalElevation = if (selected) 4.dp else 0.dp,
+                                    shape = MaterialTheme.shapes.medium,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedIndex = index }
+                                ) {
+                                    Text(
+                                        text = match.fileName,
+                                        modifier = Modifier.padding(12.dp),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable

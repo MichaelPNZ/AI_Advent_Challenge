@@ -20,6 +20,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.openai.client)
+    implementation("org.apache.pdfbox:pdfbox:3.0.2")
+    implementation("org.apache.poi:poi-ooxml:5.2.5")
 }
 
 compose.desktop {
@@ -51,5 +53,6 @@ afterEvaluate {
         dependsOn(":mcp:weatherServer:installDist")
         dependsOn(":mcp:reminderServer:installDist")
         dependsOn(":mcp:chatSummaryServer:installDist")
+        dependsOn(":mcp:docPipelineServer:installDist")
     }
 }

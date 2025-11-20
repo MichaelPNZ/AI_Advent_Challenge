@@ -8,7 +8,6 @@ import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import kotlin.random.Random
-import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,14 +16,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.contentOrNull
-import java.lang.System.getProperty
-import kotlin.time.Instant
 
 private const val DAILY_SUMMARY_TOOL = "chat_daily_summaries"
 
@@ -32,7 +30,7 @@ class DailyChatSummaryPoller(
     private val taskToolClient: TaskToolClient,
     private val chatHistory: ChatHistoryDataSource,
     private val chatThreads: ChatThreadDataSource,
-    pollIntervalMinutes: Long = getProperty("ai.advent.chat.summary.poll.minutes")?.toLongOrNull() ?: 1440L
+    pollIntervalMinutes: Long = 1440L
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val delayDuration = pollIntervalMinutes.coerceAtLeast(1).minutes
@@ -72,7 +70,7 @@ class DailyChatSummaryPoller(
         val thread = chatThreads.getThread(threadId) ?: return
         val text = payload["text"]?.jsonPrimitive?.contentOrNull ?: return
         val createdAt = payload["createdAt"]?.jsonPrimitive?.longOrNull
-        val timestamp = createdAt?.let { Instant.fromEpochMilliseconds(it) } ?: Clock.System.now()
+        val timestamp = createdAt?.let { Instant.fromEpochMilliseconds(it) } ?: kotlin.time.Clock.System.now()
         val message = ConversationMessage(
             threadId = threadId,
             id = Random.nextLong(),

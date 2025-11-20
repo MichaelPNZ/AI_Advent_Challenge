@@ -19,6 +19,7 @@ import com.pozyalov.ai_advent_challenge.network.di.networkModule
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorStub
+import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -35,6 +36,7 @@ fun chatFeatureModule(
 
     single<TaskToolClient> { TaskToolClient.None }
     single<ToolSelector> { ToolSelectorStub }
+    single<DocPipelineExecutor> { DocPipelineExecutor.None }
 
     factory<ChatRepository> { ChatRepositoryImpl(api = get(), toolClient = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
@@ -47,7 +49,8 @@ fun chatFeatureModule(
             chatThreads = get(),
             memoryStore = get(),
             exporter = get(),
-            toolSelector = get()
+            toolSelector = get(),
+            docPipelineExecutor = get()
         )
     }
 }
@@ -58,7 +61,8 @@ class ChatComponentFactory(
     private val chatThreads: ChatThreadDataSource,
     private val memoryStore: AgentMemoryStore,
     private val exporter: ChatHistoryExporter,
-    private val toolSelector: ToolSelector
+    private val toolSelector: ToolSelector,
+    private val docPipelineExecutor: DocPipelineExecutor
 ) {
     fun create(
         componentContext: ComponentContext,
@@ -72,6 +76,7 @@ class ChatComponentFactory(
         agentMemoryStore = memoryStore,
         historyExporter = exporter,
         toolSelector = toolSelector,
+        docPipelineExecutor = docPipelineExecutor,
         threadId = threadId,
         onClose = onClose
     )

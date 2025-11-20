@@ -9,6 +9,10 @@ import com.pozyalov.ai_advent_challenge.network.mcp.WeatherTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.WorldBankTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ReminderTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ChatSummaryTaskToolClient
+import com.pozyalov.ai_advent_challenge.network.mcp.DocPipelineTaskToolClient
+import com.pozyalov.ai_advent_challenge.di.AgentPollerConfig
+import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
+import com.pozyalov.ai_advent_challenge.pipeline.DesktopDocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.reminder.ReminderNotificationPoller
 import com.pozyalov.ai_advent_challenge.summary.DailyChatSummaryPoller
 import org.koin.core.module.Module
@@ -53,22 +57,47 @@ fun desktopAppModule(): Module = module {
                     description = "Ежедневные дайджесты по каждому чату.",
                     client = ChatSummaryTaskToolClient(),
                     defaultEnabled = true
+                ),
+                ToolClientEntry(
+                    id = "doc-pipeline",
+                    title = "Документы (поиск/сводка)",
+                    description = "Поиск по документам, суммаризация и сохранение результата.",
+                    client = DocPipelineTaskToolClient(),
+                    defaultEnabled = true
                 )
             )
         )
     } binds arrayOf(TaskToolClient::class, ToolSelector::class)
-    single(createdAtStart = true) {
-        ReminderNotificationPoller(
-            taskToolClient = get(),
-            chatHistory = get(),
-            chatThreads = get()
+    single<AgentPollerConfig> {
+        AgentPollerConfig(
+            reminderIntervalSeconds = System.getProperty("ai.advent.reminder.poll.interval.seconds")?.toLongOrNull()
+                ?: 120L,
+            chatSummaryIntervalMinutes = System.getProperty("ai.advent.chat.summary.poll.minutes")?.toLongOrNull()
+                ?: 1440L
         )
     }
     single(createdAtStart = true) {
+        val config: AgentPollerConfig = get()
+        ReminderNotificationPoller(
+            taskToolClient = get(),
+            chatHistory = get(),
+            chatThreads = get(),
+            pollIntervalSeconds = config.reminderIntervalSeconds
+        )
+    }
+    single(createdAtStart = true) {
+        val config: AgentPollerConfig = get()
         DailyChatSummaryPoller(
             taskToolClient = get(),
             chatHistory = get(),
-            chatThreads = get()
+            chatThreads = get(),
+            pollIntervalMinutes = config.chatSummaryIntervalMinutes
+        )
+    }
+    single<DocPipelineExecutor> {
+        DesktopDocPipelineExecutor(
+            taskToolClient = get(),
+            generateReply = get()
         )
     }
 }
@@ -81,3 +110,8 @@ private fun desktopChatDatabasePath(): String {
     }
     return File(directory, "chat_history.db").absolutePath
 }
+
+data class AgentPollerConfig(
+    val reminderIntervalSeconds: Long,
+    val chatSummaryIntervalMinutes: Long
+)

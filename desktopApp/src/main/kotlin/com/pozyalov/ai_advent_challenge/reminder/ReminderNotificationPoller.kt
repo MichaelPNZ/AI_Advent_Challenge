@@ -7,14 +7,13 @@ import com.pozyalov.ai_advent_challenge.chat.component.MessageAuthor
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
-import java.io.File
-import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
@@ -23,6 +22,7 @@ import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -35,17 +35,13 @@ class ReminderNotificationPoller(
     private val taskToolClient: TaskToolClient,
     private val chatHistory: ChatHistoryDataSource,
     private val chatThreads: ChatThreadDataSource,
-    pollIntervalSeconds: Long = System.getProperty("ai.advent.reminder.poll.interval.seconds")?.toLongOrNull()
-        ?: 60L
+    pollIntervalSeconds: Long = 120L
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val storageDir = File(System.getProperty("user.home", "."), ".ai_advent")
-    private val threadFile = File(storageDir, "reminder_thread_id")
     private val delayDuration = pollIntervalSeconds.coerceAtLeast(20).seconds
     private var cachedThreadId: Long? = null
 
     init {
-        storageDir.mkdirs()
         scope.launch { loop() }
     }
 
@@ -68,19 +64,20 @@ class ReminderNotificationPoller(
 
     private suspend fun fetchAndPost() {
         val result = taskToolClient.execute(REMINDER_NOTIFICATION_TOOL, JsonObject(emptyMap())) ?: return
-        val structured = result.structured ?: return // нет нового уведомления
-        val text = formatSummary(structured) ?: structured["text"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-            ?: result.text.takeIf { it.isNotBlank() } ?: return
+        val structured = result.structured ?: return
+        val text = formatSummary(structured)
+            ?: structured["text"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: result.text.takeIf { it.isNotBlank() }
+            ?: return
         val receivedAt = kotlin.time.Clock.System.now()
         val formattedTime = formatTimestamp(receivedAt)
         val threadId = ensureThreadId()
         val message = ConversationMessage(
             threadId = threadId,
-            id = Random.nextLong(),
             author = MessageAuthor.Agent,
             text = "[Reminder]\n\n$text\n\nПолучено: $formattedTime",
-            timestamp = receivedAt,
-            modelId = "reminder"
+            modelId = "reminder",
+            timestamp = receivedAt
         )
         chatHistory.saveMessage(message)
         chatThreads.updateThread(
@@ -92,23 +89,11 @@ class ReminderNotificationPoller(
 
     private suspend fun ensureThreadId(): Long {
         cachedThreadId?.let { return it }
-        val stored = readStoredThreadId()
-        if (stored != null && chatThreads.getThread(stored) != null) {
-            cachedThreadId = stored
-            return stored
-        }
-        val created = chatThreads.createThread(REMINDER_THREAD_TITLE)
-        writeStoredThreadId(created.id)
-        cachedThreadId = created.id
-        return created.id
-    }
-
-    private fun readStoredThreadId(): Long? = runCatching {
-        threadFile.takeIf { it.exists() }?.readText()?.trim()?.toLong()
-    }.getOrNull()
-
-    private fun writeStoredThreadId(id: Long) {
-        runCatching { threadFile.writeText(id.toString()) }
+        val threads = chatThreads.observeThreads().first()
+        val existing = threads.firstOrNull { it.title == REMINDER_THREAD_TITLE }
+        val id = existing?.id ?: chatThreads.createThread(REMINDER_THREAD_TITLE).id
+        cachedThreadId = id
+        return id
     }
 
     private fun formatSummary(structured: JsonObject): String? {

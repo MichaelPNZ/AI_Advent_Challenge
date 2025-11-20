@@ -10,6 +10,8 @@ import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryDataSource
 import com.pozyalov.ai_advent_challenge.chat.data.ChatHistoryExporter
 import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryEntry
 import com.pozyalov.ai_advent_challenge.chat.data.memory.AgentMemoryStore
+import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
+import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor.Match as DocMatch
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.ChatRoleOption
 import com.pozyalov.ai_advent_challenge.chat.model.ContextLimitCatalog
@@ -55,6 +57,8 @@ interface ChatComponent {
     fun onContextLimitInputChange(value: String)
     fun onToolToggle(toolId: String, enabled: Boolean)
     fun onExportChat(directoryPath: String?)
+    fun onPipelineSearch(query: String)
+    fun onRunPipeline(matchIndex: Int)
     fun onBack()
 
     data class Model(
@@ -78,7 +82,12 @@ interface ChatComponent {
         val contextLimitInput: String,
         val availableTools: List<ChatToolOption>,
         val memories: List<AgentMemoryEntry>,
-        val exportState: ExportState
+        val exportState: ExportState,
+        val isPipelineAvailable: Boolean,
+        val isPipelineSearching: Boolean,
+        val isPipelineRunning: Boolean,
+        val pipelineMatches: List<DocMatch>,
+        val pipelineError: String?
     )
 
     data class ExportState(
@@ -96,6 +105,7 @@ class ChatComponentImpl(
     private val historyExporter: ChatHistoryExporter,
     private val toolSelector: ToolSelector,
     agentMemoryStore: AgentMemoryStore,
+    private val docPipelineExecutor: DocPipelineExecutor,
     private val threadId: Long,
     private val onClose: () -> Unit
 ) : ChatComponent, ComponentContext by componentContext {
@@ -134,7 +144,12 @@ class ChatComponentImpl(
             contextLimitInput = "",
             availableTools = emptyList(),
             memories = emptyList(),
-            exportState = ChatComponent.ExportState()
+            exportState = ChatComponent.ExportState(),
+            isPipelineAvailable = docPipelineExecutor.isAvailable,
+            isPipelineSearching = false,
+            isPipelineRunning = false,
+            pipelineMatches = emptyList(),
+            pipelineError = null
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -222,7 +237,8 @@ class ChatComponentImpl(
             toolSelector.state.collect { state ->
                 _model.update { current ->
                     current.copy(
-                        availableTools = state.options.map { it.toChatToolOption() }
+                        availableTools = state.options.map { it.toChatToolOption() },
+                        isPipelineAvailable = docPipelineExecutor.isAvailable
                     )
                 }
             }
@@ -280,6 +296,82 @@ class ChatComponentImpl(
                     )
                 }
                 chatLog("Failed to export chat: $message")
+            }
+        }
+    }
+
+    override fun onPipelineSearch(query: String) {
+        if (!docPipelineExecutor.isAvailable) return
+        val cleaned = query.trim()
+        if (cleaned.isEmpty()) return
+        coroutineScope.launch(Dispatchers.Default) {
+            _model.update { it.copy(isPipelineSearching = true, pipelineError = null) }
+            val result = docPipelineExecutor.search(cleaned)
+            _model.update {
+                result.fold(
+                    onSuccess = { matches ->
+                        it.copy(
+                            pipelineMatches = matches,
+                            isPipelineSearching = false,
+                            pipelineError = if (matches.isEmpty()) "Совпадения не найдены" else null
+                        )
+                    },
+                    onFailure = { error ->
+                        it.copy(
+                            pipelineMatches = emptyList(),
+                            isPipelineSearching = false,
+                            pipelineError = error.message ?: "Не удалось выполнить поиск"
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    override fun onRunPipeline(matchIndex: Int) {
+        if (!docPipelineExecutor.isAvailable || _model.value.isPipelineRunning) return
+        val match = _model.value.pipelineMatches.getOrNull(matchIndex) ?: return
+        val thinkingMessage = ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.Agent,
+            text = "Готовлю сводку по \"${match.fileName}\"",
+            modelId = "doc-pipeline",
+            isThinking = true
+        )
+        emitAgentMessage(thinkingMessage, finalizeSending = false)
+        _model.update { it.copy(isPipelineRunning = true, pipelineError = null) }
+        coroutineScope.launch(Dispatchers.Default) {
+            try {
+                val result = docPipelineExecutor.summarize(match)
+                val messageText = result.fold(
+                    onSuccess = { payload ->
+                        buildString {
+                            appendLine("Doc pipeline summary")
+                            appendLine()
+                            appendLine(payload.summary)
+                            payload.savedPath?.let {
+                                appendLine()
+                                appendLine("Сохранено в: $it")
+                            }
+                        }.trim()
+                    },
+                    onFailure = { failure ->
+                        "Doc pipeline завершился ошибкой: ${failure.message ?: "неизвестная ошибка"}"
+                    }
+                )
+                val finalMessage = thinkingMessage.copy(
+                    text = messageText,
+                    isThinking = false
+                )
+                replaceAgentMessage(finalMessage, finalizeSending = false)
+            } catch (error: Throwable) {
+                val fallback = thinkingMessage.copy(
+                    text = "Doc pipeline завершился ошибкой: ${error.message ?: "неизвестная ошибка"}",
+                    isThinking = false
+                )
+                replaceAgentMessage(fallback, finalizeSending = false)
+            } finally {
+                _model.update { it.copy(isPipelineRunning = false) }
             }
         }
     }
