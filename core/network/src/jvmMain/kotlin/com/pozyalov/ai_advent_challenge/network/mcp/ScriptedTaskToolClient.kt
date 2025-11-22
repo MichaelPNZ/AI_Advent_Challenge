@@ -76,6 +76,7 @@ class ScriptedTaskToolClient(
     }
 
     private fun formatStructuredResult(structured: JsonObject): String? {
+        formatReminderTask(structured)?.let { return it }
         val prettySummary = formatReminderSummary(structured)
         if (prettySummary != null) return prettySummary
         return runCatching { json.encodeToString(JsonObject.serializer(), structured) }.getOrNull()
@@ -83,19 +84,22 @@ class ScriptedTaskToolClient(
     }
 
     private fun formatReminderSummary(structured: JsonObject): String? {
-        val overdue = structured["overdue"]?.asTaskList() ?: return null
-        val dueToday = structured["dueToday"]?.asTaskList() ?: return null
-        val upcoming = structured["upcoming"]?.asTaskList() ?: return null
+        val overdue = structured["overdue"]?.asTaskList()?.dedupByTitle() ?: return null
+        val dueToday = structured["dueToday"]?.asTaskList()?.dedupByTitle() ?: return null
+        val upcoming = structured["upcoming"]?.asTaskList()?.dedupByTitle() ?: return null
+        val later = structured["later"]?.asTaskList()?.dedupByTitle().orEmpty()
         val sections = buildList {
             add(buildString {
                 appendLine("Сводка задач")
                 appendLine("Просрочено: ${overdue.size}")
                 appendLine("На сегодня: ${dueToday.size}")
                 appendLine("Ближайшие 7 дней: ${upcoming.size}")
+                appendLine("Дальше: ${later.size}")
             }.trim())
             add(formatTaskSection("Просрочено", overdue))
             add(formatTaskSection("Сегодня", dueToday))
             add(formatTaskSection("Ближайшие 7 дней", upcoming))
+            add(formatTaskSection("Дальше", later))
         }.filter { it.isNotBlank() }
         return sections.joinToString(separator = "\n\n").ifBlank { null }
     }
@@ -141,6 +145,31 @@ class ScriptedTaskToolClient(
         val description: String?,
         val priority: String?
     )
+
+    private fun List<ReminderTaskDisplay>.dedupByTitle(): List<ReminderTaskDisplay> =
+        this.groupBy { it.title }
+            .map { (_, tasks) ->
+                tasks.minByOrNull { task ->
+                    task.dueDate?.takeIf { it.isNotBlank() } ?: "9999-12-31"
+                } ?: tasks.first()
+            }
+
+    private fun formatReminderTask(structured: JsonObject): String? {
+        val title = structured["title"]?.jsonPrimitive?.contentOrNull ?: return null
+        val due = structured["dueDate"]?.jsonPrimitive?.contentOrNull
+        val status = structured["status"]?.jsonPrimitive?.contentOrNull
+        val desc = structured["description"]?.jsonPrimitive?.contentOrNull
+        val parts = buildList {
+            desc?.takeIf { it.isNotBlank() }?.let { add(it) }
+            due?.takeIf { it.isNotBlank() }?.let { add("до $it") }
+            status?.takeIf { it.isNotBlank() }?.let { add("статус: $it") }
+        }
+        return if (parts.isEmpty()) {
+            "Задача: $title"
+        } else {
+            "Задача: $title — ${parts.joinToString(", ")}"
+        }
+    }
 
     private fun resolveScriptCommand(path: String): List<String>? {
         val file = File(path).takeIf { it.isAbsolute } ?: locateRelativePath(path)

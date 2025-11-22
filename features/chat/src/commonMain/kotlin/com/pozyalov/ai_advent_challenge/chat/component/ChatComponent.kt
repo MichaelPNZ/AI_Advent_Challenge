@@ -22,6 +22,7 @@ import com.pozyalov.ai_advent_challenge.chat.model.ReasoningCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.ReasoningOption
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureCatalog
 import com.pozyalov.ai_advent_challenge.chat.model.TemperatureOption
+import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
 import com.pozyalov.ai_advent_challenge.chat.ui.formatForDisplay
 import com.pozyalov.ai_advent_challenge.chat.util.chatLog
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
@@ -59,6 +60,9 @@ interface ChatComponent {
     fun onExportChat(directoryPath: String?)
     fun onPipelineSearch(query: String)
     fun onRunPipeline(matchIndex: Int)
+    fun onRunTripBriefing(locationQuery: String, departureDate: String?)
+    fun onConfirmTripBriefing(saveToFile: Boolean)
+    fun onCancelTripBriefing()
     fun onBack()
 
     data class Model(
@@ -87,7 +91,11 @@ interface ChatComponent {
         val isPipelineSearching: Boolean,
         val isPipelineRunning: Boolean,
         val pipelineMatches: List<DocMatch>,
-        val pipelineError: String?
+        val pipelineError: String?,
+        val isTripAvailable: Boolean,
+        val isTripRunning: Boolean,
+        val tripError: String?,
+        val tripPrepared: TripBriefingExecutor.PreparedTrip?
     )
 
     data class ExportState(
@@ -106,6 +114,7 @@ class ChatComponentImpl(
     private val toolSelector: ToolSelector,
     agentMemoryStore: AgentMemoryStore,
     private val docPipelineExecutor: DocPipelineExecutor,
+    private val tripBriefingExecutor: TripBriefingExecutor,
     private val threadId: Long,
     private val onClose: () -> Unit
 ) : ChatComponent, ComponentContext by componentContext {
@@ -115,6 +124,7 @@ class ChatComponentImpl(
     private val historyStorage = chatHistory
     private val threadStorage = chatThreads
     private val memoryStore = agentMemoryStore
+    private val pendingTrip = MutableStateFlow<TripBriefingExecutor.PreparedTrip?>(null)
     private val modelOptions: List<LlmModelOption> = LlmModelCatalog.models
     private val defaultModelOption: LlmModelOption = modelOptions.first { it.id == LlmModelCatalog.DefaultModelId }
     private val roleOptions: List<ChatRoleOption> = ChatRoleCatalog.roles
@@ -149,7 +159,11 @@ class ChatComponentImpl(
             isPipelineSearching = false,
             isPipelineRunning = false,
             pipelineMatches = emptyList(),
-            pipelineError = null
+            pipelineError = null,
+            isTripAvailable = tripBriefingExecutor.isAvailable,
+            isTripRunning = false,
+            tripError = null,
+            tripPrepared = null
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -374,6 +388,134 @@ class ChatComponentImpl(
                 _model.update { it.copy(isPipelineRunning = false) }
             }
         }
+    }
+
+    override fun onRunTripBriefing(locationQuery: String, departureDate: String?) {
+        if (!tripBriefingExecutor.isAvailable || _model.value.isTripRunning) return
+        val trimmed = locationQuery.trim()
+        if (trimmed.isEmpty()) return
+        pendingTrip.value = null
+        _model.update { it.copy(tripPrepared = null, tripError = null) }
+        val thinking = ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.Agent,
+            text = "Готовлю сводку для поездки…",
+            modelId = "trip-briefing",
+            isThinking = true
+        )
+        emitAgentMessage(thinking, finalizeSending = false)
+        _model.update { it.copy(isTripRunning = true, tripError = null) }
+
+        coroutineScope.launch(Dispatchers.Default) {
+            try {
+                val result = tripBriefingExecutor.prepareBriefing(trimmed, departureDate)
+                val messageText = result.fold(
+                    onSuccess = { payload ->
+                        buildString {
+                            appendLine("Предварительная сводка для поездки — ${payload.locationName}")
+                            appendLine()
+                            appendLine("Погода:")
+                            appendLine(payload.forecast.trim())
+                            appendLine()
+                            appendLine("Предлагаю добавить напоминания:")
+                            payload.tasks.forEachIndexed { idx, task ->
+                                appendLine("${idx + 1}. ${task.title}" + task.dueDate?.let { " — до $it" }.orEmpty())
+                            }
+                            appendLine()
+                            appendLine("Подтвердите, чтобы добавить напоминания в задачи.")
+                        }.trim()
+                    },
+                    onFailure = { failure ->
+                        failure.message ?: "Не удалось подготовить сводку."
+                    }
+                )
+                val finalMessage = thinking.copy(
+                    text = messageText,
+                    isThinking = false
+                )
+                replaceAgentMessage(finalMessage, finalizeSending = false)
+                result.onSuccess { prepared ->
+                    pendingTrip.value = prepared
+                    _model.update { it.copy(tripPrepared = prepared) }
+                }
+            } catch (error: Throwable) {
+                val fallback = thinking.copy(
+                    text = "Не удалось подготовить сводку: ${error.message ?: "неизвестная ошибка"}",
+                    isThinking = false
+                )
+                replaceAgentMessage(fallback, finalizeSending = false)
+                pendingTrip.value = null
+                _model.update { it.copy(tripError = error.message, tripPrepared = null) }
+            } finally {
+                _model.update { it.copy(isTripRunning = false) }
+            }
+        }
+    }
+
+    override fun onConfirmTripBriefing(saveToFile: Boolean) {
+        val prepared = pendingTrip.value ?: return
+        if (!tripBriefingExecutor.isAvailable || _model.value.isTripRunning) return
+        val thinking = ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.Agent,
+            text = "Добавляю напоминания по поездке…",
+            modelId = "trip-briefing",
+            isThinking = true
+        )
+        emitAgentMessage(thinking, finalizeSending = false)
+        _model.update { it.copy(isTripRunning = true, tripError = null) }
+        coroutineScope.launch(Dispatchers.Default) {
+            try {
+                val result = tripBriefingExecutor.confirmTasks(prepared, saveToFile)
+                val messageText = result.fold(
+                    onSuccess = { tasks ->
+                        buildString {
+                            appendLine("Сводка для поездки — ${prepared.locationName}")
+                            appendLine()
+                            appendLine("Погода:")
+                            appendLine(prepared.forecast.trim())
+                            appendLine()
+                            appendLine("Добавленные напоминания:")
+                            if (tasks.createdTasks.isEmpty()) {
+                                appendLine("— Не удалось добавить задачи.")
+                            } else {
+                                tasks.createdTasks.forEach { appendLine("• $it") }
+                            }
+                            appendLine()
+                            appendLine(tasks.summaryText.trim())
+                            tasks.savedPath?.let {
+                                appendLine()
+                                appendLine("Сохранено в: $it")
+                            }
+                        }.trim()
+                    },
+                    onFailure = { failure ->
+                        failure.message ?: "Не удалось добавить напоминания."
+                    }
+                )
+                val finalMessage = thinking.copy(
+                    text = messageText,
+                    isThinking = false
+                )
+                replaceAgentMessage(finalMessage, finalizeSending = false)
+                pendingTrip.value = null
+                _model.update { it.copy(tripPrepared = null, tripError = null) }
+            } catch (error: Throwable) {
+                val fallback = thinking.copy(
+                    text = "Не удалось добавить напоминания: ${error.message ?: "неизвестная ошибка"}",
+                    isThinking = false
+                )
+                replaceAgentMessage(fallback, finalizeSending = false)
+                _model.update { it.copy(tripError = error.message) }
+            } finally {
+                _model.update { it.copy(isTripRunning = false) }
+            }
+        }
+    }
+
+    override fun onCancelTripBriefing() {
+        pendingTrip.value = null
+        _model.update { it.copy(tripPrepared = null, tripError = null) }
     }
 
     override fun onSend() {

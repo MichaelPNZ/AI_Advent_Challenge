@@ -340,13 +340,15 @@ private data class ReminderSummary(
     val summaryText: String,
     val overdue: List<ReminderTask>,
     val dueToday: List<ReminderTask>,
-    val upcoming: List<ReminderTask>
+    val upcoming: List<ReminderTask>,
+    val later: List<ReminderTask>
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("summary", JsonPrimitive(summaryText))
         putJsonArray("overdue") { overdue.forEach { add(it.toJson()) } }
         putJsonArray("dueToday") { dueToday.forEach { add(it.toJson()) } }
         putJsonArray("upcoming") { upcoming.forEach { add(it.toJson()) } }
+        putJsonArray("later") { later.forEach { add(it.toJson()) } }
     }
 
     companion object {
@@ -357,6 +359,7 @@ private data class ReminderSummary(
             val overdue = mutableListOf<ReminderTask>()
             val dueToday = mutableListOf<ReminderTask>()
             val upcoming = mutableListOf<ReminderTask>()
+            val later = mutableListOf<ReminderTask>()
 
             val upcomingThreshold = today.plus(DatePeriod(days = 7))
             tasks.filter { it.status == "open" }.forEach { task ->
@@ -366,7 +369,10 @@ private data class ReminderSummary(
                         due < today -> overdue += task
                         due == today -> dueToday += task
                         due <= upcomingThreshold -> upcoming += task
+                        else -> later += task
                     }
+                } else {
+                    later += task
                 }
             }
 
@@ -375,6 +381,7 @@ private data class ReminderSummary(
                 appendLine("Просрочено: ${overdue.size}")
                 appendLine("На сегодня: ${dueToday.size}")
                 appendLine("Ближайшие 7 дней: ${upcoming.size}")
+                appendLine("Дальше: ${later.size}")
                 if (overdue.isNotEmpty()) {
                     appendLine()
                     appendLine("Просроченные:")
@@ -390,9 +397,20 @@ private data class ReminderSummary(
                     appendLine("Скоро:")
                     upcoming.take(3).forEach { appendLine("• ${it.title} (до ${it.dueDate})") }
                 }
+                if (later.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Дальше:")
+                    later.take(3).forEach { appendLine("• ${it.title}" + (it.dueDate?.let { d -> " (до $d)" } ?: "")) }
+                }
             }.trim()
 
-            return ReminderSummary(text.ifBlank { "Активных задач со сроками нет." }, overdue, dueToday, upcoming)
+            return ReminderSummary(
+                summaryText = text.ifBlank { "Активных задач со сроками нет." },
+                overdue = overdue,
+                dueToday = dueToday,
+                upcoming = upcoming,
+                later = later
+            )
         }
 
         private fun parseDate(value: String?): LocalDate? = runCatching { value?.let { LocalDate.parse(it) } }.getOrNull()

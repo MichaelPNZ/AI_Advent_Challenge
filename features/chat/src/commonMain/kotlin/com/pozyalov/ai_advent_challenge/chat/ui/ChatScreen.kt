@@ -37,7 +37,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
@@ -106,6 +108,8 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var showSettings by remember { mutableStateOf(false) }
     var showPipelineDialog by remember { mutableStateOf(false) }
+    var showTripDialog by remember { mutableStateOf(false) }
+    val showTripConfirm = model.tripPrepared != null && !model.isTripRunning
 
     val emptyStateText = stringResource(Res.string.chat_empty_state)
     val missingKeyText = stringResource(Res.string.chat_api_key_missing)
@@ -196,6 +200,28 @@ fun ChatScreen(
         )
     }
 
+    if (showTripDialog) {
+        TripBriefingDialog(
+            isRunning = model.isTripRunning,
+            errorMessage = model.tripError,
+            onDismiss = { showTripDialog = false },
+            onSubmit = { location, date ->
+                component.onRunTripBriefing(location, date.ifBlank { null })
+                showTripDialog = false
+            }
+        )
+    }
+
+    if (showTripConfirm) {
+        TripConfirmDialog(
+            prepared = model.tripPrepared!!,
+            isRunning = model.isTripRunning,
+            errorMessage = model.tripError,
+            onConfirm = { save -> component.onConfirmTripBriefing(save) },
+            onCancel = { component.onCancelTripBriefing() }
+        )
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -215,6 +241,18 @@ fun ChatScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
                 actions = {
+                    if (model.isTripAvailable) {
+                        IconButton(
+                            onClick = { showTripDialog = true },
+                            enabled = !model.isTripRunning && !model.isPipelineRunning
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.FlightTakeoff,
+                                contentDescription = "Сводка для поездки",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                     if (model.isPipelineAvailable) {
                         IconButton(
                             onClick = { showPipelineDialog = true },
@@ -675,6 +713,127 @@ private fun ExportControls(
             )
         }
     }
+}
+
+@Composable
+private fun TripBriefingDialog(
+    isRunning: Boolean,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onSubmit: (String, String) -> Unit
+) {
+    var location by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    val isDateValid = date.isBlank() || date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))
+    val dateDisplayError = !isDateValid
+    val canSubmit = location.isNotBlank() && !isRunning && isDateValid
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = { onSubmit(location.trim(), date.trim()) },
+                enabled = canSubmit
+            ) {
+                if (isRunning) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Запустить")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        },
+        title = { Text("Сводка для поездки") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    label = { Text("Город/локация") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = { input ->
+                        val filtered = input.filter { it.isDigit() || it == '-' }.take(10)
+                        date = filtered
+                    },
+                    label = { Text("Дата вылета") },
+                    placeholder = { Text("YYYY-MM-DD") },
+                    isError = dateDisplayError,
+                    singleLine = true,
+                    supportingText = {
+                        Text(
+                            text = "Формат YYYY-MM-DD, опционально",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                )
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (dateDisplayError) {
+                    Text(
+                        text = "Неверный формат даты",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun TripConfirmDialog(
+    prepared: com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor.PreparedTrip,
+    isRunning: Boolean,
+    errorMessage: String?,
+    onConfirm: (Boolean) -> Unit,
+    onCancel: () -> Unit
+) {
+    var saveToFile by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        confirmButton = {
+            TextButton(onClick = { onConfirm(saveToFile) }, enabled = !isRunning) {
+                if (isRunning) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Добавить напоминания")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !isRunning) { Text("Отмена") }
+        },
+        title = { Text("Подтверждение") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Добавить напоминания для ${prepared.locationName}:")
+                prepared.tasks.forEachIndexed { idx, task ->
+                    val due = task.dueDate?.let { " — до $it" }.orEmpty()
+                    Text("${idx + 1}. ${task.title}$due")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = saveToFile, onCheckedChange = { saveToFile = it })
+                    Text("Сохранить сводку в файл")
+                }
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    )
 }
 
 private data class ContextUsageInfo(
