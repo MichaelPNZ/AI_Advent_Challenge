@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +34,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,9 +44,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pozyalov.ai_advent_challenge.features.chatlist.component.ChatListComponent
 import com.pozyalov.ai_advent_challenge.features.chatlist.model.ChatListItem
+import io.github.vinceglb.filekit.core.FileKit
+import io.github.vinceglb.filekit.core.pickFile
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.launch
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
@@ -52,6 +57,7 @@ import kotlin.time.Instant
 fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) {
     val model by component.model.collectAsState()
     val pendingDeletion = model.pendingDeletionId
+    val scope = rememberCoroutineScope()
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -61,13 +67,30 @@ fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) 
                 tonalElevation = 2.dp,
                 color = Color.Transparent,
             ) {
-                Button(
-                    onClick = component::onNewChat,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(text = "Новый чат")
+                    Button(
+                        onClick = component::onNewChat,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "Новый чат")
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val file = FileKit.pickFile()
+                                file?.path?.let { component.onIndexDirectory(it, null) }
+                            }
+                        },
+                        enabled = !model.isIndexing
+                    ) {
+                        Icon(imageVector = Icons.Filled.FolderOpen, contentDescription = null)
+                        Text(text = "Индексировать", modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
             }
         }
@@ -119,6 +142,20 @@ fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) 
                         )
                     }
                 }
+            }
+            model.lastIndexPath?.let { path ->
+                Text(
+                    text = "Индекс построен: $path",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            model.indexError?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

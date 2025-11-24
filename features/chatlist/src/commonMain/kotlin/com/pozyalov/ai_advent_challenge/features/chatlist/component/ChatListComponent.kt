@@ -7,6 +7,7 @@ import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.ChatThreadDataSource
 import com.pozyalov.ai_advent_challenge.core.database.chat.data.StoredChatThread
 import com.pozyalov.ai_advent_challenge.features.chatlist.model.ChatListItem
+import com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,17 +30,22 @@ interface ChatListComponent {
     fun onDeleteRequested(id: Long)
     fun onDeleteConfirmed()
     fun onDeleteCanceled()
+    fun onIndexDirectory(path: String?, outputPath: String?)
 
     data class Model(
         val chats: List<ChatListItem>,
         val isLoading: Boolean,
-        val pendingDeletionId: Long? = null
+        val pendingDeletionId: Long? = null,
+        val isIndexing: Boolean = false,
+        val lastIndexPath: String? = null,
+        val indexError: String? = null
     )
 }
 
 class ChatListComponentImpl(
     componentContext: ComponentContext,
     private val threads: ChatThreadDataSource,
+    private val indexExecutor: EmbeddingIndexExecutor,
     private val onOpenChat: (Long) -> Unit
 ) : ChatListComponent, ComponentContext by componentContext {
 
@@ -83,6 +89,21 @@ class ChatListComponentImpl(
 
     override fun onDeleteCanceled() {
         _model.update { it.copy(pendingDeletionId = null) }
+    }
+
+    override fun onIndexDirectory(path: String?, outputPath: String?) {
+        if (!indexExecutor.isAvailable || path.isNullOrBlank() || _model.value.isIndexing) return
+        _model.update { it.copy(isIndexing = true, indexError = null) }
+        scope.launch(Dispatchers.Default) {
+            val result = indexExecutor.buildIndex(path, outputPath)
+            _model.update {
+                it.copy(
+                    isIndexing = false,
+                    lastIndexPath = result.getOrNull(),
+                    indexError = result.exceptionOrNull()?.message
+                )
+            }
+        }
     }
 
     private fun observeThreads() {

@@ -63,6 +63,7 @@ interface ChatComponent {
     fun onRunTripBriefing(locationQuery: String, departureDate: String?)
     fun onConfirmTripBriefing(saveToFile: Boolean)
     fun onCancelTripBriefing()
+    fun onBuildEmbeddingIndex(directoryPath: String?)
     fun onBack()
 
     data class Model(
@@ -95,7 +96,10 @@ interface ChatComponent {
         val isTripAvailable: Boolean,
         val isTripRunning: Boolean,
         val tripError: String?,
-        val tripPrepared: TripBriefingExecutor.PreparedTrip?
+        val tripPrepared: TripBriefingExecutor.PreparedTrip?,
+        val isIndexingEmbeddings: Boolean,
+        val lastIndexPath: String?,
+        val indexError: String?
     )
 
     data class ExportState(
@@ -115,6 +119,7 @@ class ChatComponentImpl(
     agentMemoryStore: AgentMemoryStore,
     private val docPipelineExecutor: DocPipelineExecutor,
     private val tripBriefingExecutor: TripBriefingExecutor,
+    private val embeddingIndexExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor,
     private val threadId: Long,
     private val onClose: () -> Unit
 ) : ChatComponent, ComponentContext by componentContext {
@@ -163,7 +168,10 @@ class ChatComponentImpl(
             isTripAvailable = tripBriefingExecutor.isAvailable,
             isTripRunning = false,
             tripError = null,
-            tripPrepared = null
+            tripPrepared = null,
+            isIndexingEmbeddings = false,
+            lastIndexPath = null,
+            indexError = null
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -516,6 +524,32 @@ class ChatComponentImpl(
     override fun onCancelTripBriefing() {
         pendingTrip.value = null
         _model.update { it.copy(tripPrepared = null, tripError = null) }
+    }
+
+    override fun onBuildEmbeddingIndex(directoryPath: String?) {
+        if (!embeddingIndexExecutor.isAvailable || directoryPath.isNullOrBlank() || _model.value.isIndexingEmbeddings) return
+        _model.update { it.copy(isIndexingEmbeddings = true, indexError = null) }
+        coroutineScope.launch(Dispatchers.Default) {
+            val result = embeddingIndexExecutor.buildIndex(directoryPath)
+            val messageText = result.fold(
+                onSuccess = { path ->
+                    "Индексирование завершено.\nИндекс: $path"
+                },
+                onFailure = { error ->
+                    _model.update { it.copy(indexError = error.message) }
+                    "Не удалось построить индекс: ${error.message ?: "неизвестная ошибка"}"
+                }
+            )
+            historyStorage.saveMessage(
+                ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.Agent,
+                    text = messageText,
+                    modelId = "embedding-index"
+                )
+            )
+            _model.update { it.copy(isIndexingEmbeddings = false, lastIndexPath = result.getOrNull()) }
+        }
     }
 
     override fun onSend() {

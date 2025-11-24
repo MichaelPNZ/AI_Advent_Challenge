@@ -31,6 +31,8 @@ kotlin {
             implementation(libs.decompose.compose)
             implementation(libs.kotlinx.datetime)
             implementation(project(":core:database"))
+            implementation(project(":features:chat"))
+            implementation(libs.filekit)
         }
         androidMain.dependencies { }
         jvmMain.dependencies { }

@@ -21,6 +21,7 @@ import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorStub
 import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
+import com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -39,6 +40,7 @@ fun chatFeatureModule(
     single<ToolSelector> { ToolSelectorStub }
     single<DocPipelineExecutor> { DocPipelineExecutor.None }
     single<TripBriefingExecutor> { TripBriefingExecutor.None }
+    single<com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor> { com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor.None }
 
     factory<ChatRepository> { ChatRepositoryImpl(api = get(), toolClient = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
@@ -53,7 +55,8 @@ fun chatFeatureModule(
             exporter = get(),
             toolSelector = get(),
             docPipelineExecutor = get(),
-            tripBriefingExecutor = get()
+            tripBriefingExecutor = get(),
+            embeddingIndexExecutor = get()
         )
     }
 }
@@ -66,7 +69,8 @@ class ChatComponentFactory(
     private val exporter: ChatHistoryExporter,
     private val toolSelector: ToolSelector,
     private val docPipelineExecutor: DocPipelineExecutor,
-    private val tripBriefingExecutor: TripBriefingExecutor
+    private val tripBriefingExecutor: TripBriefingExecutor,
+    private val embeddingIndexExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor
 ) {
     fun create(
         componentContext: ComponentContext,
@@ -82,6 +86,7 @@ class ChatComponentFactory(
         toolSelector = toolSelector,
         docPipelineExecutor = docPipelineExecutor,
         tripBriefingExecutor = tripBriefingExecutor,
+        embeddingIndexExecutor = embeddingIndexExecutor,
         threadId = threadId,
         onClose = onClose
     )

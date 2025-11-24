@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.FlightTakeoff
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -106,6 +107,7 @@ fun ChatScreen(
     val model by component.model.collectAsState()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var showSettings by remember { mutableStateOf(false) }
     var showPipelineDialog by remember { mutableStateOf(false) }
     var showTripDialog by remember { mutableStateOf(false) }
@@ -252,6 +254,21 @@ fun ChatScreen(
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val dir = FileKit.pickDirectory()
+                                component.onBuildEmbeddingIndex(dir?.path)
+                            }
+                        },
+                        enabled = !model.isIndexingEmbeddings
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.FolderOpen,
+                            contentDescription = "Индексировать документы",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                     if (model.isPipelineAvailable) {
                         IconButton(

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.hot.reload)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 dependencies {
