@@ -16,8 +16,10 @@ import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
 import com.pozyalov.ai_advent_challenge.pipeline.DesktopDocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.pipeline.DesktopTripBriefingExecutor
 import com.pozyalov.ai_advent_challenge.pipeline.DesktopEmbeddingIndexExecutor
+import com.pozyalov.ai_advent_challenge.pipeline.DesktopRagComparisonExecutor
 import com.pozyalov.ai_advent_challenge.embedding.OllamaEmbeddingClient
 import com.pozyalov.ai_advent_challenge.embedding.EmbeddingIndexService
+import com.pozyalov.ai_advent_challenge.embedding.RagComparisonService
 import com.pozyalov.ai_advent_challenge.reminder.ReminderNotificationPoller
 import com.pozyalov.ai_advent_challenge.summary.DailyChatSummaryPoller
 import org.koin.core.module.Module
@@ -114,6 +116,10 @@ fun desktopAppModule(): Module = module {
     single { EmbeddingIndexService(client = get()) }
     single<com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor> {
         DesktopEmbeddingIndexExecutor(service = get())
+    }
+    single { RagComparisonService(indexService = get(), generateReply = get()) }
+    single<com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonExecutor> {
+        DesktopRagComparisonExecutor(service = get())
     }
 }
 

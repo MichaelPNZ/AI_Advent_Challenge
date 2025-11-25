@@ -64,6 +64,8 @@ interface ChatComponent {
     fun onConfirmTripBriefing(saveToFile: Boolean)
     fun onCancelTripBriefing()
     fun onBuildEmbeddingIndex(directoryPath: String?)
+    fun onToggleRag(enabled: Boolean)
+    fun onRunRagComparison()
     fun onBack()
 
     data class Model(
@@ -99,7 +101,10 @@ interface ChatComponent {
         val tripPrepared: TripBriefingExecutor.PreparedTrip?,
         val isIndexingEmbeddings: Boolean,
         val lastIndexPath: String?,
-        val indexError: String?
+        val indexError: String?,
+        val isRagAvailable: Boolean,
+        val isRagEnabled: Boolean,
+        val isRagRunning: Boolean
     )
 
     data class ExportState(
@@ -119,6 +124,7 @@ class ChatComponentImpl(
     agentMemoryStore: AgentMemoryStore,
     private val docPipelineExecutor: DocPipelineExecutor,
     private val tripBriefingExecutor: TripBriefingExecutor,
+    private val ragExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonExecutor,
     private val embeddingIndexExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor,
     private val threadId: Long,
     private val onClose: () -> Unit
@@ -171,7 +177,10 @@ class ChatComponentImpl(
             tripPrepared = null,
             isIndexingEmbeddings = false,
             lastIndexPath = null,
-            indexError = null
+            indexError = null,
+            isRagAvailable = ragExecutor.isAvailable,
+            isRagEnabled = false,
+            isRagRunning = false
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -552,7 +561,92 @@ class ChatComponentImpl(
         }
     }
 
+    override fun onToggleRag(enabled: Boolean) {
+        _model.update { it.copy(isRagEnabled = enabled) }
+    }
+
+    override fun onRunRagComparison() {
+        if (!_model.value.isRagAvailable || _model.value.isRagRunning || _model.value.input.isBlank()) return
+        val userMessage = ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.User,
+            text = _model.value.input
+        )
+        emitAgentMessage(userMessage, finalizeSending = false)
+        val thinking = ConversationMessage(
+            threadId = threadId,
+            author = MessageAuthor.Agent,
+            text = "RAG: думаю...",
+            modelId = "rag-compare",
+            isThinking = true
+        )
+        emitAgentMessage(thinking, finalizeSending = false)
+        _model.update { it.copy(input = "") }
+        runRagComparison(_model.value.input, thinking)
+    }
+
+    private fun runRagComparison(question: String, thinkingMessage: ConversationMessage? = null) {
+        _model.update { it.copy(isRagRunning = true) }
+        coroutineScope.launch(Dispatchers.Default) {
+            val result = ragExecutor.compare(question, topK = 3)
+            val text = result.fold(
+                onSuccess = { rag ->
+                    buildString {
+                        appendLine("Режим RAG включен. Ответ по индексу:")
+                        appendLine(rag.withRag)
+                        if (rag.contextChunks.isNotEmpty()) {
+                            appendLine()
+                            appendLine("Использованные чанки:")
+                            rag.contextChunks.forEachIndexed { idx, chunk ->
+                                appendLine("${idx + 1}. ${chunk.file}")
+                            }
+                        }
+                    }.trim()
+                },
+                onFailure = { error ->
+                    "RAG сравнение завершилось ошибкой: ${error.message ?: "неизвестная ошибка"}"
+                }
+            )
+            val finalMessage = thinkingMessage?.copy(
+                text = text,
+                isThinking = false
+            ) ?: ConversationMessage(
+                threadId = threadId,
+                author = MessageAuthor.Agent,
+                text = text,
+                modelId = "rag-compare"
+            )
+            if (thinkingMessage != null) {
+                replaceAgentMessage(finalMessage, finalizeSending = false)
+            } else {
+                historyStorage.saveMessage(finalMessage)
+            }
+            _model.update { it.copy(isRagRunning = false) }
+        }
+    }
+
     override fun onSend() {
+        if (_model.value.isRagEnabled && _model.value.isRagAvailable) {
+            if (_model.value.input.isNotBlank() && !_model.value.isRagRunning) {
+                val userMessage = ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.User,
+                    text = _model.value.input
+                )
+                emitAgentMessage(userMessage, finalizeSending = false)
+                val thinking = ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.Agent,
+                    text = "RAG: думаю...",
+                    modelId = "rag-compare",
+                    isThinking = true
+                )
+                emitAgentMessage(thinking, finalizeSending = false)
+                _model.update { it.copy(input = "") }
+                runRagComparison(_model.value.input, thinking)
+            }
+            return
+        }
         data class TargetRequest(
             val option: LlmModelOption,
             val temperature: Double

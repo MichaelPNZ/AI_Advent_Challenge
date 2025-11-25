@@ -69,6 +69,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentDataType.Companion.Toggle
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -183,7 +184,10 @@ fun ChatScreen(
             contextLimitInput = model.contextLimitInput,
             onContextLimitInputChange = component::onContextLimitInputChange,
             toolOptions = model.availableTools,
-            onToolToggle = component::onToolToggle
+            onToolToggle = component::onToolToggle,
+            isRagEnabled = model.isRagEnabled,
+            onRagToggle = component::onToggleRag,
+            isRagAvailable = model.isRagAvailable
         )
     }
 
@@ -923,6 +927,9 @@ private fun ChatSettingsDialog(
     onContextLimitInputChange: (String) -> Unit,
     toolOptions: List<ChatToolOption>,
     onToolToggle: (String, Boolean) -> Unit,
+    isRagEnabled: Boolean,
+    onRagToggle: (Boolean) -> Unit,
+    isRagAvailable: Boolean,
 ) {
     val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
     val selectedModelName = models.firstOrNull { it.id == selectedModelId }?.displayName ?: "выбранной модели"
@@ -956,6 +963,14 @@ private fun ChatSettingsDialog(
                         }
                     }
                 )
+                if (isRagAvailable) {
+                    SettingsToggle(
+                        label = "RAG (ответы по индексу)",
+                        checked = isRagEnabled,
+                        onCheckedChange = onRagToggle,
+                        description = "При включении ответы строятся с использованием найденных чанков."
+                    )
+                }
                 SettingsDropdown(
                     label = "Модель",
                     selectedId = selectedModelId,
@@ -1166,6 +1181,41 @@ private fun <T> SettingsDropdown(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsToggle(
+    label: String,
+    description: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            description?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
