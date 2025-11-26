@@ -187,7 +187,9 @@ fun ChatScreen(
             onToolToggle = component::onToolToggle,
             isRagEnabled = model.isRagEnabled,
             onRagToggle = component::onToggleRag,
-            isRagAvailable = model.isRagAvailable
+            isRagAvailable = model.isRagAvailable,
+            ragThreshold = model.ragThreshold,
+            onRagThresholdChange = component::onRagThresholdChange
         )
     }
 
@@ -930,6 +932,8 @@ private fun ChatSettingsDialog(
     isRagEnabled: Boolean,
     onRagToggle: (Boolean) -> Unit,
     isRagAvailable: Boolean,
+    ragThreshold: Double,
+    onRagThresholdChange: (Double) -> Unit
 ) {
     val selectedThemeId = if (isDark) THEME_DARK_ID else THEME_LIGHT_ID
     val selectedModelName = models.firstOrNull { it.id == selectedModelId }?.displayName ?: "выбранной модели"
@@ -969,6 +973,15 @@ private fun ChatSettingsDialog(
                         checked = isRagEnabled,
                         onCheckedChange = onRagToggle,
                         description = "При включении ответы строятся с использованием найденных чанков."
+                    )
+                    OutlinedTextField(
+                        value = ragThreshold.toString(),
+                        onValueChange = { value ->
+                            value.toDoubleOrNull()?.let { onRagThresholdChange(it) }
+                        },
+                        label = { Text("Порог релевантности (0.0..1.0)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
                 SettingsDropdown(

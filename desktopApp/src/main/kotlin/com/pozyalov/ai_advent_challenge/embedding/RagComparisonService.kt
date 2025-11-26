@@ -11,7 +11,7 @@ class RagComparisonService(
     private val indexService: EmbeddingIndexService,
     private val generateReply: GenerateChatReplyUseCase
 ) {
-    suspend fun compare(question: String, topK: Int = 3): RagComparisonResult {
+    suspend fun compare(question: String, topK: Int = 3, minScore: Double? = null): RagComparisonResult {
         val model = LlmModelCatalog.models.first()
         val modelId = ModelId(model.id)
 
@@ -49,7 +49,41 @@ class RagComparisonService(
             reasoningEffort = "medium"
         ).getOrElse { throw it }.structured.summary.ifBlank { "Ответ недоступен" }
 
+        val threshold = minScore ?: FILTER_THRESHOLD
+        val scored = indexService.searchScored(question, topK = topK, minScore = threshold).getOrElse { emptyList() }
+        val filteredContext = scored.map { RagComparisonResult.ContextChunk(file = it.record.file, text = it.record.text) }
+        val filteredText = filteredContext.joinToString("\n\n") { chunk ->
+            "Источник: ${chunk.file}\n${chunk.text}"
+        }
+        val ragFilteredPrompt = buildString {
+            appendLine("Используй предоставленный контекст для ответа.")
+            appendLine("Если в контексте нет ответа, скажи, что не нашёл в документах.")
+            appendLine()
+            appendLine("Контекст:")
+            appendLine(filteredText)
+            appendLine()
+            appendLine("Вопрос: $question")
+        }
+        val ragFilteredHistory = listOf(ChatMessage(role = ChatRole.User, content = ragFilteredPrompt))
+        val ragFilteredAnswer = generateReply(
+            history = ragFilteredHistory,
+            model = modelId,
+            temperature = model.temperature,
+            systemPrompt = "Ты ассистент, отвечай по контексту. Если информации недостаточно — скажи об этом.",
+            reasoningEffort = "medium"
+        ).getOrElse { throw it }.structured.summary.ifBlank { "Ответ недоступен" }
+
         val context = chunks.map { RagComparisonResult.ContextChunk(file = it.file, text = it.text) }
-        return RagComparisonResult(noRagAnswer, ragAnswer, context)
+        return RagComparisonResult(
+            withoutRag = noRagAnswer,
+            withRag = ragAnswer,
+            contextChunks = context,
+            withRagFiltered = ragFilteredAnswer,
+            filteredChunks = filteredContext
+        )
+    }
+
+    private companion object {
+        const val FILTER_THRESHOLD = 0.25
     }
 }

@@ -66,6 +66,7 @@ interface ChatComponent {
     fun onBuildEmbeddingIndex(directoryPath: String?)
     fun onToggleRag(enabled: Boolean)
     fun onRunRagComparison()
+    fun onRagThresholdChange(value: Double)
     fun onBack()
 
     data class Model(
@@ -104,7 +105,8 @@ interface ChatComponent {
         val indexError: String?,
         val isRagAvailable: Boolean,
         val isRagEnabled: Boolean,
-        val isRagRunning: Boolean
+        val isRagRunning: Boolean,
+        val ragThreshold: Double
     )
 
     data class ExportState(
@@ -180,7 +182,8 @@ class ChatComponentImpl(
             indexError = null,
             isRagAvailable = ragExecutor.isAvailable,
             isRagEnabled = false,
-            isRagRunning = false
+            isRagRunning = false,
+            ragThreshold = 0.25
         )
     )
     override val model: StateFlow<ChatComponent.Model> = _model.asStateFlow()
@@ -567,10 +570,11 @@ class ChatComponentImpl(
 
     override fun onRunRagComparison() {
         if (!_model.value.isRagAvailable || _model.value.isRagRunning || _model.value.input.isBlank()) return
+        val question = _model.value.input
         val userMessage = ConversationMessage(
             threadId = threadId,
             author = MessageAuthor.User,
-            text = _model.value.input
+            text = question
         )
         emitAgentMessage(userMessage, finalizeSending = false)
         val thinking = ConversationMessage(
@@ -582,22 +586,27 @@ class ChatComponentImpl(
         )
         emitAgentMessage(thinking, finalizeSending = false)
         _model.update { it.copy(input = "") }
-        runRagComparison(_model.value.input, thinking)
+        runRagComparison(question, thinking)
+    }
+
+    override fun onRagThresholdChange(value: Double) {
+        _model.update { it.copy(ragThreshold = value.coerceIn(0.0, 1.0)) }
     }
 
     private fun runRagComparison(question: String, thinkingMessage: ConversationMessage? = null) {
         _model.update { it.copy(isRagRunning = true) }
         coroutineScope.launch(Dispatchers.Default) {
-            val result = ragExecutor.compare(question, topK = 3)
+            val result = ragExecutor.compare(question, topK = 3, minScore = _model.value.ragThreshold)
             val text = result.fold(
                 onSuccess = { rag ->
                     buildString {
                         appendLine("Режим RAG включен. Ответ по индексу:")
-                        appendLine(rag.withRag)
+                        appendLine(rag.withRagFiltered.ifBlank { rag.withRag })
                         if (rag.contextChunks.isNotEmpty()) {
                             appendLine()
                             appendLine("Использованные чанки:")
-                            rag.contextChunks.forEachIndexed { idx, chunk ->
+                            val chunks = rag.filteredChunks.ifEmpty { rag.contextChunks }
+                            chunks.forEachIndexed { idx, chunk ->
                                 appendLine("${idx + 1}. ${chunk.file}")
                             }
                         }
@@ -628,10 +637,11 @@ class ChatComponentImpl(
     override fun onSend() {
         if (_model.value.isRagEnabled && _model.value.isRagAvailable) {
             if (_model.value.input.isNotBlank() && !_model.value.isRagRunning) {
+                val question = _model.value.input
                 val userMessage = ConversationMessage(
                     threadId = threadId,
                     author = MessageAuthor.User,
-                    text = _model.value.input
+                    text = question
                 )
                 emitAgentMessage(userMessage, finalizeSending = false)
                 val thinking = ConversationMessage(
@@ -643,7 +653,7 @@ class ChatComponentImpl(
                 )
                 emitAgentMessage(thinking, finalizeSending = false)
                 _model.update { it.copy(input = "") }
-                runRagComparison(_model.value.input, thinking)
+                runRagComparison(question, thinking)
             }
             return
         }

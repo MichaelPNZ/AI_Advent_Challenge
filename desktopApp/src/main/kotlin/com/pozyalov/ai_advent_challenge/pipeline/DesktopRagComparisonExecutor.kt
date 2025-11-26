@@ -10,8 +10,9 @@ class DesktopRagComparisonExecutor(
     override val isAvailable: Boolean = true
     override suspend fun compare(
         question: String,
-        topK: Int
+        topK: Int,
+        minScore: Double?
     ): Result<RagComparisonResult> = runCatching {
-        service.compare(question, topK)
+        service.compare(question, topK, minScore)
     }
 }

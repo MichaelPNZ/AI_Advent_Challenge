@@ -72,12 +72,30 @@ class EmbeddingIndexService(
             json.decodeFromString(EmbeddingIndexRecord.serializer(), line)
         }
         val scored = records.map { record ->
-            record to cosine(qVec, record.embedding.toFloatArray())
+            ScoredRecord(record, cosine(qVec, record.embedding.toFloatArray()))
         }
-        scored.sortedByDescending { it.second }
+        scored.sortedByDescending { it.score }
             .take(topK)
-            .map { it.first }
+            .map { it.record }
     }
+
+    fun searchScored(query: String, topK: Int = 5, minScore: Double? = null): Result<List<ScoredRecord>> =
+        runCatching {
+            require(indexFile.exists()) { "Индекс не найден: ${indexFile.absolutePath}" }
+            val qVec = client.embed(query)
+            val records: List<EmbeddingIndexRecord> = indexFile.readLines().map { line ->
+                json.decodeFromString(EmbeddingIndexRecord.serializer(), line)
+            }
+            records.asSequence()
+                .map { record ->
+                    val score = cosine(qVec, record.embedding.toFloatArray())
+                    ScoredRecord(record, score)
+                }
+                .sortedByDescending { it.score }
+                .let { seq -> minScore?.let { thr -> seq.filter { it.score >= thr } } ?: seq }
+                .take(topK)
+                .toList()
+        }
 
     private fun splitChunks(text: String, size: Int, overlap: Int): List<String> {
         val chunks = mutableListOf<String>()
@@ -169,4 +187,9 @@ class EmbeddingIndexService(
         val denom = kotlin.math.sqrt(na) * kotlin.math.sqrt(nb)
         return if (denom == 0.0) 0.0 else dot / denom
     }
+
+    data class ScoredRecord(
+        val record: EmbeddingIndexRecord,
+        val score: Double
+    )
 }
