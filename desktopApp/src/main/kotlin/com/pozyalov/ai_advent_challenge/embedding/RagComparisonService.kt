@@ -33,6 +33,7 @@ class RagComparisonService(
         }
         val ragPrompt = buildString {
             appendLine("Используй предоставленный контекст для ответа.")
+            appendLine("Обязательно указывай источник рядом с фактами в формате [Источник: <имя файла>].")
             appendLine("Если в контексте нет ответа, скажи, что не нашёл в документах.")
             appendLine()
             appendLine("Контекст:")
@@ -57,6 +58,7 @@ class RagComparisonService(
         }
         val ragFilteredPrompt = buildString {
             appendLine("Используй предоставленный контекст для ответа.")
+            appendLine("Обязательно указывай источник рядом с фактами в формате [Источник: <имя файла>].")
             appendLine("Если в контексте нет ответа, скажи, что не нашёл в документах.")
             appendLine()
             appendLine("Контекст:")
