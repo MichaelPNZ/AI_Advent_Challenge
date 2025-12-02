@@ -110,7 +110,7 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
   - `ChatThreadDataSource` and `ChatHistoryDataSource` abstractions
 
 **MCP Servers (Kotlin/JVM):**
-- `mcp/worldBankServer/` - World Bank API wrapper (`worldbank_list_countries` tool)
+- (Удалено) `mcp/worldBankServer/` - ранее World Bank API wrapper
 - `mcp/weatherServer/` - US National Weather Service API wrapper (`weather_get_forecast` tool)
 - `mcp/reminderServer/` - Task/reminder storage
 - `mcp/chatSummaryServer/` - Daily chat digests
@@ -272,7 +272,7 @@ See [docs/PR_REVIEW.md](docs/PR_REVIEW.md) for detailed documentation.
 ## Configuration & Environment
 
 **System Properties (Desktop):**
-- `ai.advent.worldbank.mcp.script` - Path to World Bank MCP server script
+- (Удалено) `ai.advent.worldbank.mcp.script`
 - `ai.advent.weather.mcp.script` - Path to Weather MCP server script
 - `ai.advent.reminder.mcp.script` - Path to Reminder MCP server script
 

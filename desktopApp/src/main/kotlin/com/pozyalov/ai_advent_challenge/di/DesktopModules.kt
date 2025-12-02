@@ -6,7 +6,6 @@ import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolClientEntry
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.WeatherTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.WorldBankTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ReminderTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ChatSummaryTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.DocPipelineTaskToolClient
@@ -39,13 +38,6 @@ fun desktopAppModule(): Module = module {
     single {
         MultiTaskToolClient(
             entries = listOf(
-                ToolClientEntry(
-                    id = "worldbank",
-                    title = "World Bank (страны)",
-                    description = "Список стран по данным World Bank API.",
-                    client = WorldBankTaskToolClient(),
-                    defaultEnabled = true
-                ),
                 ToolClientEntry(
                     id = "weather",
                     title = "Weather.gov (прогноз)",

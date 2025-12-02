@@ -50,7 +50,6 @@ compose.desktop {
 
 afterEvaluate {
     tasks.named("run") {
-        dependsOn(":mcp:worldBankServer:installDist")
         dependsOn(":mcp:weatherServer:installDist")
         dependsOn(":mcp:reminderServer:installDist")
         dependsOn(":mcp:chatSummaryServer:installDist")
