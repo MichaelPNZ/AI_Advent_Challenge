@@ -45,6 +45,8 @@ class EmbeddingIndexService(
             } else {
                 listOf(path).filter { it.isFile && it.extension.lowercase() in allowedExtensions }
             }
+            require(files.isNotEmpty()) { "В выбранной папке нет поддерживаемых файлов (${allowedExtensions.joinToString()})." }
+            var added = 0
             files.forEach { file ->
                 val text = extractText(file)
                 splitChunks(text, chunkSize, overlap).forEachIndexed { idx, rawChunk ->
@@ -59,8 +61,10 @@ class EmbeddingIndexService(
                         embedding = emb.toList()
                     )
                     writer.appendLine(json.encodeToString(record))
+                    added++
                 }
             }
+            require(added > 0) { "Не удалось проиндексировать файлы: подходящий текст не найден или все чанки отброшены." }
         }
         target
     }
@@ -134,7 +138,12 @@ class EmbeddingIndexService(
             }
         }
 
-    private val allowedExtensions = setOf("txt", "md", "pdf", "docx")
+    // Расширили список под полный проект: текст, код, конфиги
+    private val allowedExtensions = setOf(
+        "txt", "md", "pdf", "docx",
+        "kt", "kts", "java", "xml", "json", "yaml", "yml",
+        "gradle", "properties", "csv", "sh"
+    )
 
     private companion object {
         const val MAX_PROMPT_CHARS = 2000

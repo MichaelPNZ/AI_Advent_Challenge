@@ -635,6 +635,27 @@ class ChatComponentImpl(
     }
 
     override fun onSend() {
+        val inputText = _model.value.input
+        if (inputText.trimStart().startsWith("/help", ignoreCase = true) && _model.value.isRagAvailable && !_model.value.isRagRunning) {
+            val question = inputText.removePrefix("/help").trim().ifBlank { "Что есть в проекте?" }
+            val userMessage = ConversationMessage(
+                threadId = threadId,
+                author = MessageAuthor.User,
+                text = "/help $question"
+            )
+            emitAgentMessage(userMessage, finalizeSending = false)
+            val thinking = ConversationMessage(
+                threadId = threadId,
+                author = MessageAuthor.Agent,
+                text = "RAG: думаю...",
+                modelId = "rag-compare",
+                isThinking = true
+            )
+            emitAgentMessage(thinking, finalizeSending = false)
+            _model.update { it.copy(input = "") }
+            runRagComparison(question, thinking)
+            return
+        }
         if (_model.value.isRagEnabled && _model.value.isRagAvailable) {
             if (_model.value.input.isNotBlank() && !_model.value.isRagRunning) {
                 val question = _model.value.input

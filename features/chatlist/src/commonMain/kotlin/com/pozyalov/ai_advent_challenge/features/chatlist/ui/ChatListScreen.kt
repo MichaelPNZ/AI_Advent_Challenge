@@ -82,8 +82,8 @@ fun ChatListScreen(component: ChatListComponent, modifier: Modifier = Modifier) 
                     Button(
                         onClick = {
                             scope.launch {
-                                val file = FileKit.pickFile()
-                                file?.path?.let { component.onIndexDirectory(it, null) }
+                                val dir = FileKit.pickDirectory()
+                                dir?.path?.let { component.onIndexDirectory(it, null) }
                             }
                         },
                         enabled = !model.isIndexing
