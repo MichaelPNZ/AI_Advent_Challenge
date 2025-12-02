@@ -56,4 +56,26 @@ afterEvaluate {
         dependsOn(":mcp:chatSummaryServer:installDist")
         dependsOn(":mcp:docPipelineServer:installDist")
     }
+
+    // Task для запуска PR ревью из командной строки
+    tasks.register<JavaExec>("runPrReview") {
+        group = "application"
+        description = "Run automated PR review with AI and RAG"
+        classpath = sourceSets["main"].runtimeClasspath
+        mainClass.set("com.pozyalov.ai_advent_challenge.review.PrReviewRunnerKt")
+
+        // Передаём системные свойства в JVM
+        systemProperty("base", project.findProperty("base") ?: "origin/main")
+        systemProperty("useRag", project.findProperty("useRag") ?: "true")
+        systemProperty("model", project.findProperty("model") ?: "gpt-4o")
+        systemProperty("minScore", project.findProperty("minScore") ?: "0.25")
+        systemProperty("outputFormat", project.findProperty("outputFormat") ?: "markdown")
+
+        // Также передаём переменные окружения
+        System.getenv().forEach { (key, value) ->
+            if (key.startsWith("PR_REVIEW_") || key == "OPENAI_API_KEY") {
+                environment(key, value)
+            }
+        }
+    }
 }

@@ -23,6 +23,7 @@ import com.pozyalov.ai_advent_challenge.embedding.EmbeddingIndexService
 import com.pozyalov.ai_advent_challenge.embedding.RagComparisonService
 import com.pozyalov.ai_advent_challenge.reminder.ReminderNotificationPoller
 import com.pozyalov.ai_advent_challenge.summary.DailyChatSummaryPoller
+import com.pozyalov.ai_advent_challenge.review.PrReviewService
 import org.koin.core.module.Module
 import org.koin.dsl.module
 import java.io.File
@@ -129,6 +130,13 @@ fun desktopAppModule(): Module = module {
     single { RagComparisonService(indexService = get(), generateReply = get()) }
     single<com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonExecutor> {
         DesktopRagComparisonExecutor(service = get())
+    }
+    single {
+        PrReviewService(
+            gitClient = GitTaskToolClient(),
+            indexService = get(),
+            generateReply = get()
+        )
     }
 }
 
