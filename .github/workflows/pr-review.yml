@@ -27,78 +27,20 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Setup Ollama for embeddings
+      - name: Compute diff
         run: |
-          echo "Installing Ollama..."
-          curl -fsSL https://ollama.com/install.sh | sh
+          git fetch origin ${{ github.base_ref }}
+          git diff origin/${{ github.base_ref }}...HEAD > diff.txt
 
-          echo "Starting Ollama server..."
-          ollama serve > ollama.log 2>&1 &
-          sleep 5
-
-          echo "Pulling nomic-embed-text model..."
-          ollama pull nomic-embed-text
-
-      - name: Build project
-        run: |
-          ./gradlew build -x test --no-daemon
-
-      - name: Index documentation for RAG
-        run: |
-          echo "Creating index directory..."
-          mkdir -p ~/.ai_advent/embedding_index
-
-          echo "Note: Indexing is currently done during review execution"
-          echo "Future improvement: Pre-index documentation here"
-
-      - name: Run AI PR Review with RAG
-        id: review
+      - name: Run AI PR Review (OpenAI, docs+diff)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PR_REVIEW_BASE: origin/${{ github.base_ref }}
-          PR_REVIEW_USE_RAG: "true"
-          PR_REVIEW_MODEL: "gpt-4o"
+          PR_REVIEW_MODEL: gpt-4o-mini
           PR_REVIEW_MIN_SCORE: "0.25"
-          PR_REVIEW_OUTPUT_FORMAT: "markdown"
         run: |
-          echo "Running AI PR Review..."
-          mkdir -p build
-          OUTPUT_FILE="build/review.md"
-
-          # Запускаем PR ревью
-          ./gradlew :desktopApp:runPrReview \
-            -Pbase="origin/${{ github.base_ref }}" \
-            -PuseRag=true \
-            -Pmodel="gpt-4o" \
-            -PminScore=0.25 \
-            -PoutputFormat=markdown \
-            --no-daemon \
-            > "$OUTPUT_FILE" 2>&1 || {
-              echo "⚠️ Review encountered an error, creating fallback report..."
-              cat > "$OUTPUT_FILE" <<EOF
-          # 🤖 AI Code Review
-
-          ## ⚠️ Частичный результат
-
-          Автоматическое ревью столкнулось с проблемой, но удалось получить следующую информацию:
-
-          ### 📊 Статистика изменений
-
-          \`\`\`
-          $(git diff --stat origin/${{ github.base_ref }}...HEAD)
-          \`\`\`
-
-          ### 📁 Изменённые файлы
-
-          $(git diff --name-only origin/${{ github.base_ref }}...HEAD | sed 's/^/- /')
-
-          ---
-
-          *Для полного анализа проверьте логи в разделе Actions*
-          EOF
-            }
-
-          echo "Review completed. Output saved to $OUTPUT_FILE"
+          chmod +x tools/run-pr-review.sh
+          tools/run-pr-review.sh diff.txt build/review.md
 
       - name: Post review comment
         if: always()

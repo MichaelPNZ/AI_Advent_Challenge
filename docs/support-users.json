@@ -1,0 +1,29 @@
+[
+  {
+    "id": "user123",
+    "name": "Иван Петров",
+    "email": "ivan@example.com",
+    "plan": "pro",
+    "company": "Acme",
+    "segment": "mobile",
+    "notes": "Часто спрашивает про RAG и авторизацию."
+  },
+  {
+    "id": "user456",
+    "name": "Мария Смирнова",
+    "email": "maria@example.com",
+    "plan": "starter",
+    "company": "Contoso",
+    "segment": "web",
+    "notes": "Есть открытый тикет по сборке."
+  },
+  {
+    "id": "user789",
+    "name": "Alex Lee",
+    "email": "alex@example.com",
+    "plan": "enterprise",
+    "company": "Globex",
+    "segment": "enterprise",
+    "notes": "Запросы по SLA и отчетности."
+  }
+]

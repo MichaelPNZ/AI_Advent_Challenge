@@ -17,6 +17,7 @@ import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.ProxyConfig
 import com.aallam.openai.client.RetryStrategy
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
+import kotlinx.coroutines.CancellationException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.serialization.json.Json
@@ -40,9 +41,9 @@ class AiApi(
                 logLevel = LogLevel.Body
             ),
             timeout = Timeout(
-                socket = 60.seconds,
-                request = 90.seconds,
-                connect = 30.seconds
+                socket = SOCKET_TIMEOUT,
+                request = REQUEST_TIMEOUT,
+                connect = CONNECT_TIMEOUT
             ),
             proxy = proxy,
             retry = RetryStrategy(0),
@@ -84,7 +85,10 @@ class AiApi(
             var totalDuration = 0L
             var lastModelId = targetModel.id
 
+            var iterationCount = 0
             while (true) {
+                iterationCount++
+                println("[AiApi] Tool calling iteration #$iterationCount, conversation size: ${conversation.size}")
                 val timer = TimeSource.Monotonic.markNow()
                 val completion = client.chatCompletion(
                     ChatCompletionRequest(
@@ -112,12 +116,14 @@ class AiApi(
                 val toolCalls = assistantMessage.toolCalls.orEmpty()
 
                 if (declaredTools != null && toolCalls.isNotEmpty()) {
+                    println("[AiApi] Model requested ${toolCalls.size} tool calls")
                     conversation += ChatMessage(
                         role = ChatRole.Assistant,
                         content = assistantMessage.content,
                         toolCalls = toolCalls,
                     )
                     val toolResponses = processToolCalls(toolCalls, toolClient)
+                    println("[AiApi] Tool calls completed, got ${toolResponses.size} responses. Continuing conversation...")
                     conversation.addAll(toolResponses)
                     continue
                 }
@@ -129,6 +135,7 @@ class AiApi(
                         "Model did not return a response (finish reason: ${choice.finishReason?.value ?: "unknown"})"
                     )
 
+                println("[AiApi] Received final response from model (${content.length} chars). Finishing...")
                 return@runCatching AiCompletionResult(
                     content = content,
                     modelId = lastModelId,
@@ -163,15 +170,20 @@ class AiApi(
         toolCalls.filterIsInstance<ToolCall.Function>().forEach { call ->
             val toolName = call.function.nameOrNull ?: return@forEach
             val arguments = parseToolArguments(call)
+            println("[AiApi] Executing tool: $toolName with args: ${arguments.toString().take(100)}")
             val responseText = runCatching {
                 toolClient.execute(toolName, arguments)
             }.fold(
                 onSuccess = { result ->
-                    result?.text?.takeIf { it.isNotBlank() }
+                    val response = result?.text?.takeIf { it.isNotBlank() }
                         ?: "Инструмент $toolName вернул пустой ответ."
+                    println("[AiApi] Tool $toolName returned: ${response.take(200)}")
+                    response
                 },
                 onFailure = { error ->
-                    "Ошибка вызова инструмента $toolName: ${error.message ?: error::class.simpleName}"
+                    val errorMsg = "Ошибка вызова инструмента $toolName: ${error.message ?: error::class.simpleName}"
+                    println("[AiApi] Tool $toolName failed: $errorMsg")
+                    errorMsg
                 }
             )
             add(ChatMessage.Tool(content = responseText, toolCallId = call.id))
@@ -195,6 +207,9 @@ class AiApi(
     }
 
     companion object {
+        private val SOCKET_TIMEOUT = 120.seconds
+        private val REQUEST_TIMEOUT = 120.seconds
+        private val CONNECT_TIMEOUT = 60.seconds
         val DEFAULT_REASONING_EFFORT: Effort = Effort("low")
         const val DEFAULT_TEMPERATURE: Double = 0.8
     }
@@ -209,11 +224,14 @@ class AiApi(
         return when (this) {
             is HttpRequestTimeoutException -> true
             is TimeoutCancellationException -> true
+            is CancellationException -> message?.contains("timed out", ignoreCase = true) == true
             else -> {
                 val nameHasTimeout = this::class.simpleName
                     ?.contains("timeout", ignoreCase = true) == true
+                val messageHasTimeout = message
+                    ?.contains("timed out", ignoreCase = true) == true
                 val next = cause
-                nameHasTimeout || (next != null && next !== this && next.isTimeoutError())
+                messageHasTimeout || nameHasTimeout || (next != null && next !== this && next.isTimeoutError())
             }
         }
     }

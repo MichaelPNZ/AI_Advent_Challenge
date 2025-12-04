@@ -44,12 +44,12 @@ Switch to `listTools` if you need the raw `List<McpToolDescriptor>` for custom U
 
 #### World Bank API
 
-В репозитории есть пример собственного MCP сервера: `mcp/world-bank-server`. Он использует открытое API Всемирного банка и предоставляет инструмент `worldbank_list_countries`.
+В репозитории ранее был пример MCP сервера World Bank, сейчас он удалён.
 
 1. Соберите бинарь с помощью `./gradlew :mcp:worldBankServer:installDist` (нужно один раз).
 2. При необходимости запустите `./mcp/world-bank-server/run-world-bank-server.sh`, чтобы убедиться, что сервер отвечает (никаких токенов не требуется).
 3. Укажите путь до скрипта через переменную `MCP_SERVER_SCRIPT` **или** просто оставьте значение по умолчанию (`mcp/world-bank-server/run-world-bank-server.sh`) — десктопный клиент найдёт его автоматически и сохранит в `ai.advent.mcp.script`.
-4. При запуске десктопного приложения `WorldBankTaskToolClient` подключается к MCP-серверу, считывает список инструментов и передаёт их в LLM. Когда вы задаёте вопрос вроде «Какие страны с высоким доходом?», модель видит инструмент `worldbank_list_countries`, вызывает его (через MCP) и уже затем формирует финальный ответ на основе свежих данных World Bank API.
+4. Инструмент World Bank удалён; доступные инструменты см. в конфигурации десктопного приложения.
 
 #### Weather API (api.weather.gov)
 

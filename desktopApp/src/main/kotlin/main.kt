@@ -30,11 +30,6 @@ fun main() {
 
 private suspend fun configureMcpScripts() {
     configureScriptProperty(
-        property = "ai.advent.worldbank.mcp.script",
-        defaultPath = "mcp/world-bank-server/run-world-bank-server.sh",
-        printTools = true
-    )
-    configureScriptProperty(
         property = "ai.advent.weather.mcp.script",
         defaultPath = "mcp/weather-server/run-weather-server.sh"
     )

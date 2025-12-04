@@ -31,6 +31,7 @@ import com.pozyalov.ai_advent_challenge.network.api.RateLimitExceededException
 import com.pozyalov.ai_advent_challenge.chat.model.ChatToolOption
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorOption
+import com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
@@ -596,41 +598,67 @@ class ChatComponentImpl(
     private fun runRagComparison(question: String, thinkingMessage: ConversationMessage? = null) {
         _model.update { it.copy(isRagRunning = true) }
         coroutineScope.launch(Dispatchers.Default) {
-            val result = ragExecutor.compare(question, topK = 3, minScore = _model.value.ragThreshold)
-            val text = result.fold(
-                onSuccess = { rag ->
-                    buildString {
-                        appendLine("Режим RAG включен. Ответ по индексу:")
-                        appendLine(rag.withRagFiltered.ifBlank { rag.withRag })
-                        if (rag.contextChunks.isNotEmpty()) {
-                            appendLine()
-                            appendLine("Использованные чанки:")
-                            val chunks = rag.filteredChunks.ifEmpty { rag.contextChunks }
-                            chunks.forEachIndexed { idx, chunk ->
-                                appendLine("${idx + 1}. ${chunk.file}")
+            try {
+                val result: Result<RagComparisonResult> = withTimeoutOrNull(RAG_TIMEOUT_MS) {
+                    ragExecutor.compare(
+                        question,
+                        topK = 3,
+                        minScore = _model.value.ragThreshold
+                    )
+                } ?: Result.failure(IllegalStateException("RAG сравнение заняло больше ${RAG_TIMEOUT_MS / 1000} секунд и было отменено."))
+
+                val text = result.fold(
+                    onSuccess = { rag ->
+                        buildString {
+                            appendLine("Режим RAG включен. Ответ по индексу:")
+                            appendLine(rag.withRagFiltered.ifBlank { rag.withRag })
+                            if (rag.contextChunks.isNotEmpty()) {
+                                appendLine()
+                                appendLine("Использованные чанки:")
+                                val chunks = rag.filteredChunks.ifEmpty { rag.contextChunks }
+                                chunks.forEachIndexed { idx, chunk ->
+                                    appendLine("${idx + 1}. ${chunk.file}")
+                                }
                             }
-                        }
-                    }.trim()
-                },
-                onFailure = { error ->
-                    "RAG сравнение завершилось ошибкой: ${error.message ?: "неизвестная ошибка"}"
+                        }.trim()
+                    },
+                    onFailure = { error ->
+                        "RAG сравнение завершилось ошибкой: ${error.message ?: "неизвестная ошибка"}"
+                    }
+                )
+                val finalMessage = thinkingMessage?.copy(
+                    text = text,
+                    isThinking = false
+                ) ?: ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.Agent,
+                    text = text,
+                    modelId = "rag-compare"
+                )
+                if (thinkingMessage != null) {
+                    replaceAgentMessage(finalMessage, finalizeSending = true)
+                } else {
+                    historyStorage.saveMessage(finalMessage)
                 }
-            )
-            val finalMessage = thinkingMessage?.copy(
-                text = text,
-                isThinking = false
-            ) ?: ConversationMessage(
-                threadId = threadId,
-                author = MessageAuthor.Agent,
-                text = text,
-                modelId = "rag-compare"
-            )
-            if (thinkingMessage != null) {
-                replaceAgentMessage(finalMessage, finalizeSending = false)
-            } else {
-                historyStorage.saveMessage(finalMessage)
+            } catch (error: Throwable) {
+                val fallbackText = "RAG сравнение завершилось ошибкой: ${error.message ?: "неизвестная ошибка"}"
+                val fallback = thinkingMessage?.copy(
+                    text = fallbackText,
+                    isThinking = false
+                ) ?: ConversationMessage(
+                    threadId = threadId,
+                    author = MessageAuthor.Agent,
+                    text = fallbackText,
+                    modelId = "rag-compare"
+                )
+                if (thinkingMessage != null) {
+                    replaceAgentMessage(fallback, finalizeSending = true)
+                } else {
+                    historyStorage.saveMessage(fallback)
+                }
+            } finally {
+                _model.update { it.copy(isRagRunning = false, isSending = false) }
             }
-            _model.update { it.copy(isRagRunning = false) }
         }
     }
 
@@ -638,6 +666,7 @@ class ChatComponentImpl(
         val inputText = _model.value.input
         if (inputText.trimStart().startsWith("/help", ignoreCase = true) && _model.value.isRagAvailable && !_model.value.isRagRunning) {
             val question = inputText.removePrefix("/help").trim().ifBlank { "Что есть в проекте?" }
+            _model.update { it.copy(input = "", isSending = true) }
             val userMessage = ConversationMessage(
                 threadId = threadId,
                 author = MessageAuthor.User,
@@ -652,13 +681,13 @@ class ChatComponentImpl(
                 isThinking = true
             )
             emitAgentMessage(thinking, finalizeSending = false)
-            _model.update { it.copy(input = "") }
             runRagComparison(question, thinking)
             return
         }
         if (_model.value.isRagEnabled && _model.value.isRagAvailable) {
             if (_model.value.input.isNotBlank() && !_model.value.isRagRunning) {
                 val question = _model.value.input
+                _model.update { it.copy(input = "", isSending = true) }
                 val userMessage = ConversationMessage(
                     threadId = threadId,
                     author = MessageAuthor.User,
@@ -673,7 +702,6 @@ class ChatComponentImpl(
                     isThinking = true
                 )
                 emitAgentMessage(thinking, finalizeSending = false)
-                _model.update { it.copy(input = "") }
                 runRagComparison(question, thinking)
             }
             return
@@ -816,8 +844,9 @@ class ChatComponentImpl(
             }
             chatLog("Effective request history size=${effectiveHistory.size}")
             try {
-                for (target in targets) {
-                    chatLog("Sending request via ${target.option.id} (temperature=${target.temperature})")
+                for ((index, target) in targets.withIndex()) {
+                    val isLastTarget = index == targets.lastIndex
+                    chatLog("Sending request via ${target.option.id} (temperature=${target.temperature}), isLastTarget=$isLastTarget")
                     val modelId = ModelId(target.option.id)
                     val thinkingMessage = ConversationMessage(
                         threadId = threadId,
@@ -837,8 +866,10 @@ class ChatComponentImpl(
                         systemPrompt = rolePrompt.systemPrompt,
                         reasoningEffort = reasoningOption.effort
                     )
+                    chatLog("agent.reply() returned, processing result...")
                     val responseMessage = result.fold(
                         onSuccess = { reply ->
+                            chatLog("Reply successful, creating ConversationMessage...")
                             ConversationMessage(
                                 threadId = threadId,
                                 author = MessageAuthor.Agent,
@@ -873,15 +904,19 @@ class ChatComponentImpl(
                         }
                     )
 
+                    chatLog("Creating finalMessage from responseMessage...")
                     val finalMessage = responseMessage.copy(
                         id = thinkingMessage.id,
                         isThinking = false
                     )
                     val shouldStop = finalMessage.error != null
+                    val shouldFinalize = shouldStop || isLastTarget
+                    chatLog("Calling replaceAgentMessage, shouldStop=$shouldStop, isLastTarget=$isLastTarget, shouldFinalize=$shouldFinalize")
                     replaceAgentMessage(
                         message = finalMessage,
-                        finalizeSending = shouldStop
+                        finalizeSending = shouldFinalize
                     )
+                    chatLog("replaceAgentMessage completed")
                     if (shouldStop) {
                         break
                     }
@@ -919,8 +954,10 @@ class ChatComponentImpl(
 
     private fun persistMessage(message: ConversationMessage) {
         coroutineScope.launch(Dispatchers.Default) {
+            chatLog("persistMessage: saving message id=${message.id} to storage...")
             runCatching {
                 historyStorage.saveMessage(message)
+                chatLog("persistMessage: message saved successfully")
                 if (message.isThinking) {
                     return@runCatching
                 }
@@ -984,17 +1021,21 @@ class ChatComponentImpl(
         message: ConversationMessage,
         finalizeSending: Boolean
     ) {
+        chatLog("replaceAgentMessage: messageId=${message.id}, finalizeSending=$finalizeSending, text.length=${message.text.length}")
         _model.update { state ->
             val updatedMessages = state.messages.map { current ->
                 if (current.id == message.id) message else current
             }
+            chatLog("Updated ${updatedMessages.size} messages, isSending will be ${if (finalizeSending) false else state.isSending}")
             state.copy(
                 messages = updatedMessages,
                 isConfigured = agent.isConfigured,
                 isSending = if (finalizeSending) false else state.isSending
             )
         }
+        chatLog("Calling persistMessage...")
         persistMessage(message)
+        chatLog("persistMessage completed")
     }
 
     private fun Throwable?.displayMessage(prefix: String? = null): String {
@@ -1041,5 +1082,6 @@ class ChatComponentImpl(
         private const val APPROX_CHARS_PER_TOKEN = 4
         private const val MAX_PADDING_CHARS = 2_000_000
         private const val MAX_PADDING_TOKENS = 50_000
+        private const val RAG_TIMEOUT_MS = 120_000L
     }
 }

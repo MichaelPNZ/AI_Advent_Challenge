@@ -4,15 +4,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-DIST_DIR="${PROJECT_ROOT}/mcp/worldBankServer/build/install/worldBankServer"
+DIST_DIR="${PROJECT_ROOT}/mcp/supportTicketServer/build/install/supportTicketServer"
 LIB_DIR="${DIST_DIR}/lib"
-MAIN_CLASS="com.pozyalov.ai_advent_challenge.mcp.worldbank.WorldBankServerKt"
+MAIN_CLASS="com.pozyalov.ai_advent_challenge.mcp.support.SupportTicketServerKt"
 
 if [[ ! -d "${LIB_DIR}" ]]; then
-  cat <<'EOF'
-World Bank MCP server binary not found.
-Please run `./gradlew :mcp:worldBankServer:installDist` once before launching this script.
-EOF
+  cat <<'MSG'
+Support Ticket MCP server binary not found.
+Run ./gradlew :mcp:supportTicketServer:installDist first to build the distribution.
+MSG
   exit 1
 fi
 
@@ -26,7 +26,7 @@ for jar in "${LIB_DIR}"/*.jar; do
 done
 
 if [[ -z "${CLASSPATH}" ]]; then
-  echo "No JARs were found in ${LIB_DIR}. Re-run ./gradlew :mcp:worldBankServer:installDist."
+  echo "No JAR files found in ${LIB_DIR}. Re-run ./gradlew :mcp:supportTicketServer:installDist."
   exit 1
 fi
 
