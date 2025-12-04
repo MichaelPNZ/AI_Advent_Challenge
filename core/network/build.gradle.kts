@@ -25,6 +25,10 @@ kotlin {
             implementation(libs.koin.core)
             implementation(libs.mcpKotlinClient)
             implementation(libs.mcpKotlinCore)
+            // Ktor client для HTTP MCP клиентов
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
         }
 
         androidMain.dependencies {

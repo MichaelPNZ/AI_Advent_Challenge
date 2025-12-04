@@ -17,26 +17,52 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
 ./gradlew :androidApp:assembleDebug
 # Find the APK at: androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
-# Install MCP server distributions (required before running desktop app)
+# Install MCP server distributions (required for MCP functionality)
 ./gradlew :mcp:weatherServer:installDist
 ./gradlew :mcp:reminderServer:installDist
 ./gradlew :mcp:chatSummaryServer:installDist
 ./gradlew :mcp:docPipelineServer:installDist
 ./gradlew :mcp:supportTicketServer:installDist
+
+# Build MCP HTTP Proxy (for multiplatform MCP access)
+./gradlew :mcp:proxyServer:installDist
 ```
 
 ### Running the application
+
+**Desktop (JVM):**
 ```bash
-# Desktop app
+# Option 1: Local stdio mode (direct MCP server access, default)
 ./gradlew :desktopApp:run
+
+# Option 2: HTTP proxy mode (requires running proxy server)
+# First, start the MCP HTTP Proxy:
+./mcp/proxyServer/run-proxy-server.sh
+# Then in another terminal:
+./gradlew :desktopApp:run -Dmcp.mode=http
 
 # Desktop app with hot reload (auto-restart on changes)
 ./gradlew :desktopApp:hotRun --auto
+```
 
-# Android: open project in Android Studio and run the android configuration
+**Android:**
+```bash
+# 1. Start MCP HTTP Proxy (required for Android):
+./mcp/proxyServer/run-proxy-server.sh
 
-# iOS: open iosApp/iosApp.xcproject in Xcode and run standard configuration
+# 2. Open project in Android Studio and run the android configuration
+# Android emulator will automatically connect to http://10.0.2.2:8080
+# For real devices, configure proxy URL in AndroidModules.kt
+```
+
+**iOS:**
+```bash
+# 1. Start MCP HTTP Proxy (required for iOS):
+./mcp/proxyServer/run-proxy-server.sh
+
+# 2. Open iosApp/iosApp.xcproject in Xcode and run standard configuration
 # Or use the Kotlin Multiplatform Mobile plugin for Android Studio
+# iOS simulator will connect to http://localhost:8080
 ```
 
 ### Testing
@@ -98,19 +124,30 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
   - Document indexing trigger (folder selection)
 
 **Core Modules:**
-- `core/network/` - Networking and MCP client
-  - `commonMain/` - Shared network logic
-  - `jvmMain/` - JVM-specific implementations including MCP tool clients
-  - `network/mcp/TaskToolClient.kt` - Interface for MCP tool integration
-  - `network/mcp/McpToolInspector.kt` - Helper for MCP server introspection
-  - Each MCP tool client (WorldBankTaskToolClient, WeatherTaskToolClient, etc.) implements TaskToolClient
+- `core/network/` - Networking and MCP client (multiplatform)
+  - `commonMain/` - Shared network logic and HTTP-based MCP client
+    - `network/mcp/TaskToolClient.kt` - Platform-agnostic interface for MCP tool integration
+    - `network/mcp/HttpTaskToolClient.kt` - HTTP client for MCP servers (works on all platforms)
+    - `network/mcp/TaskToolClientFactory.kt` - Platform-specific factory (expect/actual)
+  - `jvmMain/` - JVM-specific implementations
+    - `network/mcp/McpToolInspector.kt` - Helper for MCP server introspection (stdio transport)
+    - Stdio-based MCP tool clients (WeatherTaskToolClient, ReminderTaskToolClient, etc.)
+  - `androidMain/` - Android-specific factory (uses HTTP proxy)
+  - `iosMain/` - iOS-specific factory (uses HTTP proxy)
 
 - `core/database/` - Room database for chat history
   - Multiplatform Room setup with chat threads and messages
   - `ChatThreadDataSource` and `ChatHistoryDataSource` abstractions
 
+**MCP Infrastructure:**
+- `mcp/proxyServer/` - **MCP HTTP Proxy** (Ktor server)
+  - Translates HTTP requests → stdio MCP calls
+  - Enables Android/iOS to use MCP servers
+  - REST API: `/health`, `/mcp/servers`, `/mcp/{server}/tools`, `/mcp/{server}/tool/{tool}`
+  - Can run locally, in Docker, or on VPS
+  - See [docs/MCP_HTTP_PROXY.md](docs/MCP_HTTP_PROXY.md) for details
+
 **MCP Servers (Kotlin/JVM):**
-- (Удалено) `mcp/worldBankServer/` - ранее World Bank API wrapper
 - `mcp/weatherServer/` - US National Weather Service API wrapper (`weather_get_forecast` tool)
 - `mcp/reminderServer/` - Task/reminder storage
 - `mcp/chatSummaryServer/` - Daily chat digests
@@ -130,12 +167,32 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
 - Each feature has a `Component` interface/implementation for business logic
 - Components are platform-agnostic and testable
 
-**MCP Integration:**
-- MCP servers run as separate processes communicating via stdio
-- Desktop app locates server scripts via system properties or defaults (e.g., `ai.advent.worldbank.mcp.script`)
-- `McpToolInspector.guessCommandForScript()` determines how to launch each server
-- Tool definitions from MCP servers are converted to OpenAI Tool format for LLM function calling
-- `TaskToolClient.execute()` is invoked when LLM requests a tool call, which forwards to the MCP server
+**MCP Integration (Multiplatform):**
+- **Two modes of operation:**
+  - **LOCAL_STDIO** (JVM only): Direct stdio communication with MCP servers
+  - **HTTP_PROXY** (all platforms): HTTP requests to MCP HTTP Proxy server
+- **Desktop (JVM):**
+  - Default: LOCAL_STDIO mode (direct MCP server access via `McpToolInspector`)
+  - Optional: HTTP_PROXY mode (set `mcp.mode=http`)
+  - Locates server scripts via system properties or defaults
+- **Android/iOS:**
+  - Always use HTTP_PROXY mode (stdio not available)
+  - Android emulator: connects to `http://10.0.2.2:8080`
+  - iOS simulator: connects to `http://localhost:8080`
+  - Real devices: configure IP address in platform DI modules
+- **MCP HTTP Proxy (`mcp/proxyServer/`):**
+  - Ktor server that wraps stdio MCP servers with HTTP API
+  - Manages MCP server lifecycle (process spawn/cleanup)
+  - Converts MCP Tool definitions to OpenAI Tool format
+  - Run locally: `./mcp/proxyServer/run-proxy-server.sh`
+  - Docker: `docker-compose up`
+  - VPS: deploy with nginx + SSL
+- **Tool execution flow:**
+  1. LLM generates tool call (OpenAI function calling format)
+  2. `TaskToolClient.execute()` is invoked
+  3. JVM (stdio): direct call via `McpToolInspector` → stdio → MCP server
+  4. Android/iOS (HTTP): HTTP POST to `/mcp/{server}/tool/{tool}` → proxy → stdio → MCP server
+  5. Result returned to LLM for next reasoning step
 
 **RAG (Retrieval Augmented Generation):**
 - Desktop-only feature using Ollama with `nomic-embed-text` model

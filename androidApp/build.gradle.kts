@@ -30,7 +30,14 @@ android {
 dependencies {
     implementation(project(":sharedUI"))
     implementation(project(":core:database"))
+    implementation(project(":core:network"))
     implementation(libs.androidx.activityCompose)
     implementation(libs.room.runtime)
     implementation(libs.koin.core)
+
+    // Ktor client для MCP HTTP режима
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
 }
