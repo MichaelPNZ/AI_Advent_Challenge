@@ -1,16 +1,16 @@
 package com.pozyalov.ai_advent_challenge.di
 
 import com.pozyalov.ai_advent_challenge.core.database.factory.createChatDatabase
-import com.pozyalov.ai_advent_challenge.network.mcp.MultiTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.ToolClientEntry
+import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClientFactory
+import com.pozyalov.ai_advent_challenge.network.mcp.McpClientConfig
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
-import com.pozyalov.ai_advent_challenge.network.mcp.WeatherTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.ReminderTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.ChatSummaryTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.DocPipelineTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.GitTaskToolClient
-import com.pozyalov.ai_advent_challenge.network.mcp.SupportTicketTaskToolClient
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import com.pozyalov.ai_advent_challenge.di.AgentPollerConfig
 import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
@@ -36,55 +36,37 @@ fun desktopAppModule(): Module = module {
             fallbackToDestructiveMigration = true
         )
     }
+
+    // HttpClient для MCP HTTP режима
     single {
-        MultiTaskToolClient(
-            entries = listOf(
-                ToolClientEntry(
-                    id = "weather",
-                    title = "Weather.gov (прогноз)",
-                    description = "Краткий прогноз погоды для указанных координат.",
-                    client = WeatherTaskToolClient(),
-                    defaultEnabled = true
-                ),
-                ToolClientEntry(
-                    id = "reminder",
-                    title = "Reminder (задачи)",
-                    description = "Хранение задач и сводки по напоминаниям.",
-                    client = ReminderTaskToolClient(),
-                    defaultEnabled = true
-                ),
-                ToolClientEntry(
-                    id = "chat-summary",
-                    title = "Дневные сводки чатов",
-                    description = "Ежедневные дайджесты по каждому чату.",
-                    client = ChatSummaryTaskToolClient(),
-                    defaultEnabled = true
-                ),
-                ToolClientEntry(
-                    id = "doc-pipeline",
-                    title = "Документы (поиск/сводка)",
-                    description = "Поиск по документам, суммаризация и сохранение результата.",
-                    client = DocPipelineTaskToolClient(),
-                    defaultEnabled = true
-                ),
-                ToolClientEntry(
-                    id = "git",
-                    title = "Git (ветка)",
-                    description = "Текущая git-ветка рабочего каталога.",
-                    client = GitTaskToolClient(),
-                    defaultEnabled = true,
-                    alwaysAvailable = true
-                ),
-                ToolClientEntry(
-                    id = "support-ticket",
-                    title = "Support Ticket (поддержка)",
-                    description = "Управление тикетами техподдержки: создание, просмотр, обновление статуса.",
-                    client = SupportTicketTaskToolClient(),
-                    defaultEnabled = true,
-                    alwaysAvailable = true
-                )
-            )
-        )
+        HttpClient(OkHttp) {
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    explicitNulls = false
+                })
+            }
+        }
+    }
+
+    // TaskToolClient с поддержкой обоих режимов
+    single {
+        val mcpMode = System.getProperty("mcp.mode") ?: System.getenv("MCP_MODE") ?: "local"
+        val proxyUrl = System.getProperty("mcp.proxy.url") ?: System.getenv("MCP_PROXY_URL") ?: "http://localhost:8080"
+
+        val config = when (mcpMode.lowercase()) {
+            "http", "proxy" -> McpClientConfig(McpClientConfig.Mode.HTTP_PROXY, proxyUrl)
+            else -> McpClientConfig(McpClientConfig.Mode.LOCAL_STDIO)
+        }
+
+        println("🔧 MCP Mode: ${config.mode}")
+        if (config.mode == McpClientConfig.Mode.HTTP_PROXY) {
+            println("🌐 MCP Proxy URL: ${config.proxyUrl}")
+        }
+
+        runBlocking {
+            TaskToolClientFactory.create(config, get())
+        }
     } binds arrayOf(TaskToolClient::class, ToolSelector::class)
     single<AgentPollerConfig> {
         AgentPollerConfig(
@@ -134,7 +116,7 @@ fun desktopAppModule(): Module = module {
     }
     single {
         PrReviewService(
-            gitClient = GitTaskToolClient(),
+            gitClient = com.pozyalov.ai_advent_challenge.network.mcp.GitTaskToolClient(),
             indexService = get(),
             generateReply = get()
         )

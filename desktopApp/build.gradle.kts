@@ -23,6 +23,12 @@ dependencies {
     implementation(libs.openai.client)
     implementation("org.apache.pdfbox:pdfbox:3.0.2")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
+
+    // Ktor client для MCP HTTP режима
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
 }
 
 compose.desktop {

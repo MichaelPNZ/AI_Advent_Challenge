@@ -1,0 +1,44 @@
+# Build outputs
+**/build
+**/out
+**/.gradle
+.gradle
+
+# IDE
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+README.md
+*.md
+
+# Android specific
+androidApp/release
+androidApp/debug
+local.properties
+
+# iOS specific
+iosApp/*.xcodeproj
+iosApp/*.xcworkspace
+iosApp/Pods
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Data directories (будут монтированы через volume)
+.ai_advent
