@@ -77,4 +77,30 @@ afterEvaluate {
             }
         }
     }
+
+    tasks.register<JavaExec>("runSupportAssistant") {
+        group = "application"
+        description = "Запустить ассистента поддержки с RAG и MCP по тикетам"
+        classpath = sourceSets["main"].runtimeClasspath
+        mainClass.set("com.pozyalov.ai_advent_challenge.support.SupportAssistantCliKt")
+
+        project.findProperty("question")?.let { systemProperty("question", it) }
+        project.findProperty("userId")?.let { systemProperty("userId", it) }
+        project.findProperty("contextPath")?.let { systemProperty("contextPath", it) }
+        project.findProperty("model")?.let { systemProperty("model", it) }
+        project.findProperty("topK")?.let { systemProperty("topK", it) }
+        project.findProperty("minScore")?.let { systemProperty("minScore", it) }
+
+        // Прокидываем свойства CLI
+        System.getProperties()
+            .filterKeys { it.toString().startsWith("ai.advent.support.") }
+            .forEach { (key, value) -> systemProperty(key.toString(), value) }
+
+        // Передаём окружение для API ключей
+        System.getenv().forEach { (key, value) ->
+            if (key.startsWith("OPENAI_") || key.startsWith("SUPPORT_")) {
+                environment(key, value)
+            }
+        }
+    }
 }

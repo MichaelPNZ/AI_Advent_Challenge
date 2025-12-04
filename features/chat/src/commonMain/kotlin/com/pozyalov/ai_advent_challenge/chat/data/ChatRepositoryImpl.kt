@@ -65,18 +65,27 @@ class ChatRepositoryImpl(
             sanitizedHistory.forEach { add(it.toAiMessage()) }
         }
 
-        return api.chatCompletion(
+        println("[ChatRepo] Calling api.chatCompletion...")
+        val completionResult = api.chatCompletion(
             messages = requestMessages,
             model = model,
             temperature = temperature,
             reasoningEffort = reasoningEffort,
             toolClient = toolClient
-        ).mapCatching { result ->
+        )
+        println("[ChatRepo] api.chatCompletion returned, mapping result...")
+        return completionResult.mapCatching { result ->
+            println("[ChatRepo] Inside mapCatching, parsing response...")
             val structured = parseStructuredResponse(result.content)
-            AgentReply(
+            println("[ChatRepo] Creating AgentReply...")
+            val reply = AgentReply(
                 structured = structured,
                 metrics = result.toMetrics()
             )
+            println("[ChatRepo] AgentReply created, returning...")
+            reply
+        }.also { finalResult ->
+            println("[ChatRepo] Final result: ${if (finalResult.isSuccess) "SUCCESS" else "FAILURE: ${finalResult.exceptionOrNull()?.message}"}")
         }
     }
 
@@ -90,12 +99,16 @@ class ChatRepositoryImpl(
     }
 
     private fun parseStructuredResponse(raw: String): AgentStructuredResponse {
+        println("[ChatRepo] Parsing response, length=${raw.length}")
         val normalized = stripMarkdownFences(raw)
+        println("[ChatRepo] After stripMarkdownFences, length=${normalized.length}")
         require(normalized.isNotBlank()) {
             "Agent returned an empty response"
         }
 
+        println("[ChatRepo] Parsing JSON...")
         val element = parseJson(normalized)
+        println("[ChatRepo] JSON parsed successfully, type=${element::class.simpleName}")
 
         if (element is JsonObject && element.containsKey("error")) {
             val error = runCatching {
@@ -113,8 +126,14 @@ class ChatRepositoryImpl(
             throw IllegalStateException("Agent response is not a JSON object")
         }
 
+        println("[ChatRepo] Converting to AgentPayload...")
         val payload = element.toAgentPayload()
-        return payload.toDomain().sanitized()
+        println("[ChatRepo] Converting to domain model...")
+        val domain = payload.toDomain()
+        println("[ChatRepo] Sanitizing response...")
+        val result = domain.sanitized()
+        println("[ChatRepo] Response parsed successfully: title='${result.title}', confidence=${result.confidence}")
+        return result
     }
 
     private fun AgentStructuredResponse.sanitized(): AgentStructuredResponse {

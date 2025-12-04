@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Model Context Protocol (MCP) tool integration, RAG (Retrieval Augmented Generation), and multi-platform support (Android, iOS, Desktop). The app enables conversations with LLMs while accessing external tools via MCP servers for weather data, World Bank API, reminders, document processing, and more.
+AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Model Context Protocol (MCP) tool integration, RAG (Retrieval Augmented Generation), technical support assistant, and multi-platform support (Android, iOS, Desktop). The app enables conversations with LLMs while accessing external tools via MCP servers for weather data, reminders, document processing, support tickets, and more.
 
 ## Build & Development Commands
 
@@ -18,11 +18,11 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
 # Find the APK at: androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
 # Install MCP server distributions (required before running desktop app)
-./gradlew :mcp:worldBankServer:installDist
 ./gradlew :mcp:weatherServer:installDist
 ./gradlew :mcp:reminderServer:installDist
 ./gradlew :mcp:chatSummaryServer:installDist
 ./gradlew :mcp:docPipelineServer:installDist
+./gradlew :mcp:supportTicketServer:installDist
 ```
 
 ### Running the application
@@ -115,6 +115,7 @@ AI Advent Challenge is a Kotlin Multiplatform chat assistant application with Mo
 - `mcp/reminderServer/` - Task/reminder storage
 - `mcp/chatSummaryServer/` - Daily chat digests
 - `mcp/docPipelineServer/` - Document search and summarization
+- `mcp/supportTicketServer/` - Technical support tickets management (create, get, update, list, add_comment, stats)
 - Each has a `run-*.sh` script in corresponding `-server/` directory that launches the compiled JAR
 
 ### Key Architectural Patterns
@@ -302,3 +303,90 @@ See [docs/PR_REVIEW.md](docs/PR_REVIEW.md) for detailed documentation.
 - Full MCP and RAG support
 - File system access for document indexing
 - Window size: 1600x1200 default, 800x600 minimum
+
+## Technical Support Assistant
+
+### Overview
+
+AI Advent Challenge includes a fully functional technical support assistant that combines RAG and MCP tools to:
+- Answer user questions based on documentation
+- Create and manage support tickets
+- Track issues and provide statistics
+
+### Quick Setup
+
+1. **Install Ollama (for RAG embeddings):**
+   ```bash
+   # macOS
+   brew install ollama
+   ollama serve
+   ollama pull nomic-embed-text
+   ```
+
+2. **Build Support Ticket Server:**
+   ```bash
+   ./gradlew :mcp:supportTicketServer:installDist
+   ```
+
+3. **Index FAQ Documentation:**
+   - Launch desktop app: `./gradlew :desktopApp:run`
+   - Click "Индексировать" in chat list
+   - Select `docs/support-faq` folder
+
+4. **Configure Chat for Support:**
+   - Create new chat
+   - Open settings (⚙️)
+   - Select role: "Техподдержка"
+   - Enable RAG mode (threshold: 0.25)
+   - Enable MCP tool: "Support Ticket"
+
+### Architecture
+
+**Components:**
+- `mcp/supportTicketServer/` - MCP server for ticket management
+- `core/network/src/jvmMain/.../SupportTicketTaskToolClient.kt` - Client integration
+- `features/chat/.../ChatRoleCatalog.kt` - Support assistant role with specialized prompt
+- `docs/support-faq/` - FAQ documentation (auth, RAG, build, MCP tools)
+
+**Data Storage:**
+- Tickets: `~/.ai_advent/support_tickets.json`
+- RAG Index: `~/.ai_advent/embedding_index/index.jsonl`
+
+**MCP Tools:**
+- `support_ticket_create` - Create new ticket (userId, title, description, category, priority)
+- `support_ticket_get` - Get ticket details by ID
+- `support_ticket_update` - Update ticket status (open/in_progress/resolved/closed)
+- `support_ticket_list` - List tickets with filters (userId, status, category, limit)
+- `support_ticket_add_comment` - Add comment to ticket (author, text)
+- `support_ticket_stats` - Get overall statistics
+
+**Categories:** auth, payment, bug, feature, other
+**Priorities:** low, normal, high, critical
+
+### Usage Examples
+
+**Answer from Documentation:**
+```
+User: Почему не работает авторизация?
+Assistant: [Provides solution citing FAQ sources]
+```
+
+**Create Ticket:**
+```
+User: Создай тикет от user123 про проблему со сборкой
+Assistant: ✓ Тикет создан: #abc123
+```
+
+**List Tickets:**
+```
+User: Покажи открытые тикеты
+Assistant: Открытые тикеты (3): ...
+```
+
+### Documentation
+
+- [Full Support Assistant Guide](docs/SUPPORT_ASSISTANT.md)
+- [FAQ: Auth Issues](docs/support-faq/auth-issues.md)
+- [FAQ: RAG Setup](docs/support-faq/rag-setup.md)
+- [FAQ: Build Issues](docs/support-faq/build-issues.md)
+- [FAQ: MCP Tools](docs/support-faq/mcp-tools.md)

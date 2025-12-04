@@ -10,6 +10,7 @@ import com.pozyalov.ai_advent_challenge.network.mcp.ReminderTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.ChatSummaryTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.DocPipelineTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.GitTaskToolClient
+import com.pozyalov.ai_advent_challenge.network.mcp.SupportTicketTaskToolClient
 import com.pozyalov.ai_advent_challenge.di.AgentPollerConfig
 import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
@@ -71,6 +72,14 @@ fun desktopAppModule(): Module = module {
                     title = "Git (ветка)",
                     description = "Текущая git-ветка рабочего каталога.",
                     client = GitTaskToolClient(),
+                    defaultEnabled = true,
+                    alwaysAvailable = true
+                ),
+                ToolClientEntry(
+                    id = "support-ticket",
+                    title = "Support Ticket (поддержка)",
+                    description = "Управление тикетами техподдержки: создание, просмотр, обновление статуса.",
+                    client = SupportTicketTaskToolClient(),
                     defaultEnabled = true,
                     alwaysAvailable = true
                 )

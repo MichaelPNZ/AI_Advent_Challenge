@@ -76,10 +76,13 @@ class ChatAgent(
             }"
         )
 
+        chatLog("Calling generateReply use case...")
         return generateReply(domainHistory, model, temperature, systemPrompt, reasoningEffort)
-            .onSuccess { chatLog("Parsed structured response: ${it.structured}") }
+            .onSuccess {
+                chatLog("✓ generateReply succeeded. Parsed structured response: title='${it.structured.title}', confidence=${it.structured.confidence}")
+            }
             .onFailure { failure ->
-                chatLog("Failed to get structured response: ${failure.message.orEmpty()}")
+                chatLog("✗ generateReply failed: ${failure.message.orEmpty()}")
             }
     }
 
