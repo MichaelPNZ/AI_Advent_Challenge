@@ -35,8 +35,8 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PR_REVIEW_BASE: origin/${{ github.base_ref }}
-          PR_REVIEW_MODEL: gpt-5-mini
-          PR_REVIEW_MIN_SCORE: "1.0"
+          PR_REVIEW_MODEL: gpt-4o-mini
+          PR_REVIEW_MIN_SCORE: "0.25"
           PR_REVIEW_USE_RAG: "true"
           PR_REVIEW_OUTPUT_FORMAT: markdown
         run: |
