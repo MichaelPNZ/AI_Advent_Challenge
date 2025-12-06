@@ -30,11 +30,11 @@ $(head -c 4000 "$file")
     if [[ ${#acc} -ge $limit ]]; then
       break
     fi
-  done < <(find README.md project/docs -type f -print0 2>/dev/null)
+  done < <(find README.MD docs -type f -print0 2>/dev/null)
   echo "$acc"
 }
 
-docs_content="$(collect_docs "README.md project/docs" "$MAX_CHARS_DOCS")"
+docs_content="$(collect_docs "README.MD docs" "$MAX_CHARS_DOCS")"
 
 prompt=$(cat <<EOF
 Ты опытный инженер и делаешь code review для PR.
@@ -67,7 +67,7 @@ response="$(curl -sS https://api.openai.com/v1/chat/completions \
     --arg model "$MODEL" \
     --arg sys "$prompt" \
     --arg user "$user_msg" \
-    '{model:$model, messages:[{role:"system",content:$sys},{role:"user",content:$user}], max_tokens:1200}')")"
+    '{model:$model, messages:[{role:"system",content:$sys},{role:"user",content:$user}], max_completion_tokens:1200}')")"
 
 content="$(echo "$response" | jq -r '.choices[0].message.content // empty')"
 if [[ -z "$content" ]]; then
