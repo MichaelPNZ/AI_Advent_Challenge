@@ -1,4 +1,4 @@
-name: AI PR Review
+name: AI PR Review Bot
 
 on:
   pull_request:
@@ -7,37 +7,38 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
-  ai-review:
-    name: Automated AI Code Review with RAG
+  review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Полная история для git diff
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: temurin
+          java-version: 17
+          cache: gradle
 
       - name: Compute diff
         run: |
           git fetch origin ${{ github.base_ref }}
           git diff origin/${{ github.base_ref }}...HEAD > diff.txt
 
-      - name: Run AI PR Review (OpenAI, docs+diff)
+      - name: Run AI PR Review
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PR_REVIEW_BASE: origin/${{ github.base_ref }}
           PR_REVIEW_MODEL: gpt-4o-mini
           PR_REVIEW_MIN_SCORE: "0.25"
+          PR_REVIEW_USE_RAG: "true"
+          PR_REVIEW_OUTPUT_FORMAT: markdown
         run: |
           chmod +x tools/run-pr-review.sh
           tools/run-pr-review.sh diff.txt build/review.md
@@ -50,15 +51,13 @@ jobs:
           script: |
             const fs = require('fs');
             const path = 'build/review.md';
-
-            let reviewContent;
+            let body = '';
             try {
-              reviewContent = fs.readFileSync(path, 'utf8');
-            } catch (error) {
-              reviewContent = `# 🤖 AI Code Review\n\n## ❌ Ошибка\n\nНе удалось прочитать результаты ревью.\nПроверьте логи в разделе Actions.`;
+              body = fs.readFileSync(path, 'utf8');
+            } catch (e) {
+              body = '# 🤖 AI Code Review\n\nНе удалось прочитать результаты ревью.\nПроверьте логи в разделе Actions.';
             }
 
-            // Ищем существующий комментарий от бота
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -70,34 +69,41 @@ jobs:
               comment.body.includes('🤖 AI Code Review')
             );
 
-            const commentBody = reviewContent;
-
             if (botComment) {
-              // Обновляем существующий комментарий
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
-                body: commentBody
+                body
               });
-              console.log('Updated existing comment');
             } else {
-              // Создаём новый комментарий
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: commentBody
+                body
               });
-              console.log('Created new comment');
             }
 
-      - name: Upload review artifact
+      - name: Slack notify (optional)
+        if: ${{ always() && env.SLACK_WEBHOOK_URL != '' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -f build/review.md ]; then
+            SNIPPET=$(head -n 40 build/review.md | sed 's/"/\\"/g')
+          else
+            SNIPPET="Отчет недоступен, проверьте логи."
+          fi
+          payload="{\"text\":\"🤖 PR Review #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.html_url }}\\n${SNIPPET}\"}"
+          curl -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
+
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pr-review-report
           path: |
             build/review.md
+            diff.txt
             ollama.log
-          retention-days: 30
