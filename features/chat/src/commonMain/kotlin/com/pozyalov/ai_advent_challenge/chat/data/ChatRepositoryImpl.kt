@@ -13,6 +13,7 @@ import com.pozyalov.ai_advent_challenge.network.api.AiCompletionResult
 import com.pozyalov.ai_advent_challenge.network.api.AiCompletionUsage
 import com.pozyalov.ai_advent_challenge.network.api.AiMessage
 import com.pozyalov.ai_advent_challenge.network.api.AiRole
+import com.pozyalov.ai_advent_challenge.network.api.OllamaApi
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 class ChatRepositoryImpl(
     private val api: AiApi,
+    private val localApi: OllamaApi,
     private val toolClient: TaskToolClient,
     private val json: Json = Json {
         encodeDefaults = false
@@ -46,6 +48,7 @@ class ChatRepositoryImpl(
         reasoningEffort: String,
     ): Result<AgentReply> {
         val sanitizedHistory = history.filter { it.content.isNotBlank() }
+        val isLocalModel = LlmModelCatalog.isLocalModel(model.id)
 
         val toolPrompt = buildToolPrompt()
         val requestMessages = buildList {
@@ -66,13 +69,25 @@ class ChatRepositoryImpl(
         }
 
         println("[ChatRepo] Calling api.chatCompletion...")
-        val completionResult = api.chatCompletion(
-            messages = requestMessages,
-            model = model,
-            temperature = temperature,
-            reasoningEffort = reasoningEffort,
-            toolClient = toolClient
-        )
+        val completionResult = when {
+            isLocalModel -> localApi.chatCompletion(
+                messages = requestMessages,
+                model = model.id,
+                temperature = temperature
+            )
+
+            !api.isConfigured -> {
+                Result.failure(IllegalStateException("OpenAI API key is missing"))
+            }
+
+            else -> api.chatCompletion(
+                messages = requestMessages,
+                model = model,
+                temperature = temperature,
+                reasoningEffort = reasoningEffort,
+                toolClient = toolClient
+            )
+        }
         println("[ChatRepo] api.chatCompletion returned, mapping result...")
         return completionResult.mapCatching { result ->
             println("[ChatRepo] Inside mapCatching, parsing response...")
@@ -107,7 +122,10 @@ class ChatRepositoryImpl(
         }
 
         println("[ChatRepo] Parsing JSON...")
-        val element = parseJson(normalized)
+        val element = runCatching { parseJson(normalized) }.getOrElse { cause ->
+            println("[ChatRepo] Failed to parse JSON, falling back to plain text: ${cause.message}")
+            return fallbackStructuredResponse(normalized, cause)
+        }
         println("[ChatRepo] JSON parsed successfully, type=${element::class.simpleName}")
 
         if (element is JsonObject && element.containsKey("error")) {
@@ -122,12 +140,11 @@ class ChatRepositoryImpl(
             throw IllegalStateException(error.reason.ifBlank { error.error })
         }
 
-        if (element !is JsonObject) {
-            throw IllegalStateException("Agent response is not a JSON object")
-        }
+        val jsonObject = element as? JsonObject
+            ?: return fallbackStructuredResponse(normalized, IllegalStateException("Agent response is not a JSON object"))
 
         println("[ChatRepo] Converting to AgentPayload...")
-        val payload = element.toAgentPayload()
+        val payload = jsonObject.toAgentPayload()
         println("[ChatRepo] Converting to domain model...")
         val domain = payload.toDomain()
         println("[ChatRepo] Sanitizing response...")
@@ -204,6 +221,26 @@ class ChatRepositoryImpl(
             lines.indexOfLast { it.trim() == "```" }.takeIf { it > startIndex } ?: lines.size
         val body = lines.subList(startIndex, endIndex)
         return body.joinToString("\n").trim()
+    }
+
+    private fun fallbackStructuredResponse(raw: String, cause: Throwable?): AgentStructuredResponse {
+        val safe = raw.trim()
+        val title = safe.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+            ?.take(120)
+            ?.ifBlank { null }
+            ?: "Ответ"
+        val confidence = 0.15
+        println("[ChatRepo] Returning fallback structured response (confidence=$confidence)")
+        if (cause != null) {
+            println("[ChatRepo] Fallback reason: ${cause.message}")
+        }
+        return AgentStructuredResponse(
+            title = title,
+            summary = safe,
+            confidence = confidence
+        )
     }
 
     private fun AgentResponsePayload.toDomain(): AgentStructuredResponse =

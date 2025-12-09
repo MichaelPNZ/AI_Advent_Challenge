@@ -12,9 +12,17 @@ data class LlmModelOption(
 )
 
 object LlmModelCatalog {
-    const val DefaultModelId: String = "gpt-5-mini"
+    const val DefaultModelId: String = "ollama:qwen3:8b"
 
     val models: List<LlmModelOption> = listOf(
+        LlmModelOption(
+            id = "ollama:qwen3:8b",
+            displayName = "Qwen 3 8B (локально через Ollama)",
+            description = "Локальная Qwen-3 8B: скачайте через `ollama pull qwen3:8b`",
+            temperature = 0.6,
+            promptPricePer1KTokensUsd = null,
+            completionPricePer1KTokensUsd = null
+        ),
         LlmModelOption(
             id = "gpt-5-mini",
             displayName = "GPT-5 Mini",
@@ -69,4 +77,7 @@ object LlmModelCatalog {
 
     fun firstOrDefault(modelId: String?): LlmModelOption =
         models.firstOrNull { it.id == modelId } ?: models.first { it.id == DefaultModelId }
+
+    fun isLocalModel(modelId: String?): Boolean =
+        modelId?.startsWith("ollama:", ignoreCase = true) == true
 }

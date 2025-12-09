@@ -44,7 +44,7 @@ fun chatFeatureModule(
     single<com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor> { com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor.None }
     single<RagComparisonExecutor> { RagComparisonExecutor.None }
 
-    factory<ChatRepository> { ChatRepositoryImpl(api = get(), toolClient = get()) }
+    factory<ChatRepository> { ChatRepositoryImpl(api = get(), localApi = get(), toolClient = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
     factory { ChatAgent(generateReply = get()) }
 

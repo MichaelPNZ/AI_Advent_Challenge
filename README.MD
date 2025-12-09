@@ -17,6 +17,12 @@ To run the application on iPhone device/simulator:
  - Open `iosApp/iosApp.xcproject` in Xcode and run standard configuration  
  - Or use [Kotlin Multiplatform Mobile plugin](https://plugins.jetbrains.com/plugin/14936-kotlin-multiplatform-mobile) for Android Studio  
 
+### Локальная LLM (офлайн, Ollama)
+- Установите и запустите Ollama: `brew install ollama && ollama serve`
+- Скачайте модель: `ollama pull llama3.2`
+- Запустите десктоп: `./gradlew :desktopApp:run` (модель по умолчанию — локальная `ollama:llama3.2`, OpenAI ключ не нужен)
+- При желании переключайтесь на другие модели в настройках чата.
+
 ### MCP tooling
 The `core/network` module ships with `McpToolInspector`, a helper that can connect to any MCP server which communicates via stdio and print the tools it exposes.  
 Provide the path to your MCP server entry point through the `MCP_SERVER_SCRIPT` environment variable and the desktop client will automatically run `printTools(...)` on startup.  

@@ -3,6 +3,6 @@
     <string name="chat_empty_state">Задайте вопрос, чтобы начать беседу.</string>
     <string name="chat_input_placeholder">Ваш вопрос...</string>
     <string name="chat_send">Отправить</string>
-    <string name="chat_api_key_missing">Добавьте openAiKey в local.properties, чтобы получать ответы от модели.</string>
+    <string name="chat_api_key_missing">Добавьте openAiKey в local.properties или выберите локальную модель Ollama.</string>
     <string name="chat_error_generic">Не удалось получить ответ. Попробуйте снова.</string>
 </resources>
