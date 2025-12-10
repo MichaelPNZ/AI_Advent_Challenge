@@ -12,13 +12,13 @@ data class LlmModelOption(
 )
 
 object LlmModelCatalog {
-    const val DefaultModelId: String = "ollama:qwen3:8b"
+    const val DefaultModelId: String = "ollama:llama3.2:1b"
 
     val models: List<LlmModelOption> = listOf(
         LlmModelOption(
-            id = "ollama:qwen3:8b",
-            displayName = "Qwen 3 8B (локально через Ollama)",
-            description = "Локальная Qwen-3 8B: скачайте через `ollama pull qwen3:8b`",
+            id = "ollama:llama3.2:1b",
+            displayName = "Llama 3.2 1B (Ollama на VPS)",
+            description = "Использует VPS Ollama: `http://208.123.185.229:11434`, модель `llama3.2:1b` уже установлена.",
             temperature = 0.6,
             promptPricePer1KTokensUsd = null,
             completionPricePer1KTokensUsd = null

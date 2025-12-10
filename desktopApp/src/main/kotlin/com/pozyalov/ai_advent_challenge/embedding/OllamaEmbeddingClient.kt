@@ -25,7 +25,7 @@ data class OllamaEmbeddingsResponse(
 )
 
 class OllamaEmbeddingClient(
-    private val baseUrl: String = "http://127.0.0.1:11434",
+    private val baseUrl: String = DEFAULT_BASE_URL,
     private val json: Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true // важно: сериализуем поле model по умолчанию
@@ -49,5 +49,10 @@ class OllamaEmbeddingClient(
         val arr = element.jsonObject["embedding"]?.jsonArray
             ?: error("Ollama response missing embedding")
         return arr.map { it.jsonPrimitive.double }.map { it.toFloat() }.toFloatArray()
+    }
+
+    companion object {
+        // По умолчанию бьёмся в Ollama на VPS
+        private const val DEFAULT_BASE_URL = "http://208.123.185.229:11434"
     }
 }

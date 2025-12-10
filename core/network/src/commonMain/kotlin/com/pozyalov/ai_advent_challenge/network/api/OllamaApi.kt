@@ -127,7 +127,8 @@ class OllamaApi(
     )
 
     companion object {
-        private const val DEFAULT_BASE_URL = "http://127.0.0.1:11434"
+        // Подключаемся к Ollama на VPS по умолчанию
+        private const val DEFAULT_BASE_URL = "http://208.123.185.229:11434"
         private const val OLLAMA_PREFIX = "ollama:"
 
         private fun defaultClient(): HttpClient = HttpClient {
