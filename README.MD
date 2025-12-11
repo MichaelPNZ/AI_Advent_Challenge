@@ -19,7 +19,7 @@ To run the application on iPhone device/simulator:
 
 ### LLM на VPS (Ollama)
 - Запущенный сервер: `http://208.123.185.229:11434`
-- Модель по умолчанию: `ollama:llama3.2:1b` (уже установлена на VPS)
+- Модель по умолчанию: `ollama:llama3.2:1b-instruct-q4_K_M` (квантованная, уже установлена на VPS; быстрее на 2 vCPU/4 ГБ)
 - Запуск десктопа: `./gradlew :desktopApp:run` — будет использовать VPS, OpenAI ключ не нужен
 - При желании переключайтесь на другие модели в настройках чата (нужны на том же VPS).
 

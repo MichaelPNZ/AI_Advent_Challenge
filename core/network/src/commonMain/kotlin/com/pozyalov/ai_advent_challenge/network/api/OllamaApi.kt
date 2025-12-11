@@ -42,13 +42,19 @@ class OllamaApi(
         messages: List<AiMessage>,
         model: String,
         temperature: Double?,
+        tuning: OllamaTuning? = null,
     ): Result<AiCompletionResult> {
         val sanitized = messages.filter { it.text.isNotBlank() }
+        val options = Options.from(
+            userTemperature = temperature,
+            tuning = tuning
+        )
+
         val request = ChatRequest(
             model = model.substringAfter(OLLAMA_PREFIX, model),
             messages = sanitized.map { it.toOllamaMessage() },
             stream = false,
-            options = Options(temperature = temperature?.coerceIn(0.0, 2.0))
+            options = options
         )
 
         val timer = TimeSource.Monotonic.markNow()
@@ -109,8 +115,35 @@ class OllamaApi(
 
     @Serializable
     private data class Options(
-        val temperature: Double? = null
-    )
+        val temperature: Double? = null,
+        @SerialName("num_ctx")
+        val numCtx: Int? = null,
+        @SerialName("num_predict")
+        val numPredict: Int? = null,
+        @SerialName("top_p")
+        val topP: Double? = null,
+        @SerialName("top_k")
+        val topK: Int? = null,
+        @SerialName("repeat_penalty")
+        val repeatPenalty: Double? = null,
+    ) {
+        companion object {
+            fun from(
+                userTemperature: Double?,
+                tuning: OllamaTuning?
+            ): Options? {
+                if (userTemperature == null && tuning == null) return null
+                return Options(
+                    temperature = userTemperature?.coerceIn(0.0, 2.0) ?: tuning?.temperature?.coerceIn(0.0, 2.0),
+                    numCtx = tuning?.numCtx,
+                    numPredict = tuning?.numPredict,
+                    topP = tuning?.topP,
+                    topK = tuning?.topK,
+                    repeatPenalty = tuning?.repeatPenalty
+                )
+            }
+        }
+    }
 
     @Serializable
     private data class ChatResponse(
@@ -179,3 +212,16 @@ class OllamaApi(
         )
     }
 }
+
+/**
+ * Контейнер для тонкой настройки локальной Ollama-модели.
+ * Добавлен отдельным типом, чтобы не размазывать логику по другим слоям.
+ */
+data class OllamaTuning(
+    val numCtx: Int? = null,
+    val numPredict: Int? = null,
+    val topP: Double? = null,
+    val topK: Int? = null,
+    val repeatPenalty: Double? = null,
+    val temperature: Double? = null
+)

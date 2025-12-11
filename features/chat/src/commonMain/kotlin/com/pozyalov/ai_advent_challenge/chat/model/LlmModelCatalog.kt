@@ -1,5 +1,6 @@
 package com.pozyalov.ai_advent_challenge.chat.model
 
+import com.pozyalov.ai_advent_challenge.network.api.OllamaTuning
 
 data class LlmModelOption(
     val id: String,
@@ -8,20 +9,30 @@ data class LlmModelOption(
     val temperature: Double,
     val temperatureLocked: Boolean = false,
     val promptPricePer1KTokensUsd: Double? = null,
-    val completionPricePer1KTokensUsd: Double? = null
+    val completionPricePer1KTokensUsd: Double? = null,
+    val ollamaTuning: OllamaTuning? = null
 )
 
 object LlmModelCatalog {
-    const val DefaultModelId: String = "ollama:llama3.2:1b"
+    const val DefaultModelId: String = "ollama:llama3.2:1b-instruct-q4_K_M"
 
     val models: List<LlmModelOption> = listOf(
         LlmModelOption(
-            id = "ollama:llama3.2:1b",
-            displayName = "Llama 3.2 1B (Ollama на VPS)",
-            description = "Использует VPS Ollama: `http://208.123.185.229:11434`, модель `llama3.2:1b` уже установлена.",
-            temperature = 0.6,
+            id = "ollama:llama3.2:1b-instruct-q4_K_M",
+            displayName = "Llama 3.2 1B instruct q4_K_M (Ollama на VPS)",
+            description = "VPS Ollama: `http://208.123.185.229:11434`, квантованная `llama3.2:1b-instruct-q4_K_M` для быстрого ответа на 2 vCPU.",
+            temperature = 0.55,
             promptPricePer1KTokensUsd = null,
-            completionPricePer1KTokensUsd = null
+            completionPricePer1KTokensUsd = null,
+            ollamaTuning = OllamaTuning(
+                // Базовый профиль под слабый VPS: умеренный контекст и короткие ответы
+                numCtx = 4096,
+                numPredict = 256,
+                topP = 0.92,
+                topK = 60,
+                repeatPenalty = 1.05,
+                temperature = 0.55
+            )
         ),
         LlmModelOption(
             id = "gpt-5-mini",
@@ -80,4 +91,7 @@ object LlmModelCatalog {
 
     fun isLocalModel(modelId: String?): Boolean =
         modelId?.startsWith("ollama:", ignoreCase = true) == true
+
+    fun tuningFor(modelId: String?): OllamaTuning? =
+        models.firstOrNull { it.id == modelId }?.ollamaTuning
 }
