@@ -10,6 +10,7 @@ import com.pozyalov.ai_advent_challenge.chat.model.LlmModelCatalog
 import com.pozyalov.ai_advent_challenge.embedding.EmbeddingIndexService
 import com.pozyalov.ai_advent_challenge.embedding.OllamaEmbeddingClient
 import com.pozyalov.ai_advent_challenge.network.api.AiApi
+import com.pozyalov.ai_advent_challenge.network.api.OllamaApi
 import com.pozyalov.ai_advent_challenge.network.mcp.SupportTicketStore
 import com.pozyalov.ai_advent_challenge.network.mcp.SupportTicketTaskToolClient
 import com.pozyalov.ai_advent_challenge.network.mcp.SupportUserStore
@@ -60,7 +61,8 @@ private class SupportAssistantRunner {
 
     suspend fun run(config: SupportAssistantConfig) {
         val apiKey = System.getenv("OPENAI_API_KEY").orEmpty()
-        if (apiKey.isBlank()) {
+        val isLocalModel = LlmModelCatalog.isLocalModel(config.modelId)
+        if (!isLocalModel && apiKey.isBlank()) {
             println("OPENAI_API_KEY не задан. Экспортируйте ключ и повторите.")
             exitProcess(1)
         }
@@ -74,6 +76,7 @@ private class SupportAssistantRunner {
         )
         val repository = ChatRepositoryImpl(
             api = AiApi(apiKey = apiKey),
+            localApi = OllamaApi(),
             toolClient = toolClient
         )
         val useCase = GenerateChatReplyUseCase(repository)

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Wrapper to intercept `ollama run deepseek-r1` and answer via local analyst service.
+# All other ollama commands are forwarded to the real binary.
+
+set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REAL_OLLAMA="${REAL_OLLAMA:-}"
+if [[ -z "$REAL_OLLAMA" ]]; then
+  for c in /usr/local/bin/ollama /opt/homebrew/bin/ollama $(command -v ollama 2>/dev/null); do
+    if [[ -x "$c" && "$c" != "$0" ]]; then REAL_OLLAMA="$c"; break; fi
+  done
+fi
+if [[ -z "$REAL_OLLAMA" ]]; then
+  echo "[wrapper] real ollama not found" >&2; exit 1;
+fi
+
+# Detect target command
+if [[ "$#" -ge 2 && "$1" == "run" && "$2" =~ ^deepseek-r1 ]]; then
+  # choose free port (8001..8010) unless ANALYST_PORT is set
+  if [[ -z "${ANALYST_PORT:-}" ]]; then
+    PORT=$(python3 - <<'PY'
+import socket
+host="127.0.0.1"
+for p in range(8001, 8011):
+    with socket.socket() as s:
+        s.settimeout(0.2)
+        try:
+            s.connect((host, p))
+        except OSError:
+            print(p)
+            break
+        else:
+            continue
+PY
+)
+  else
+    PORT="$ANALYST_PORT"
+  fi
+  HOST=${ANALYST_HOST:-127.0.0.1}
+  SERVICE_URL="http://${HOST}:${PORT}/ask?q=ping"
+  if ! curl -sS --fail --max-time 1 "$SERVICE_URL" >/dev/null 2>/dev/null; then
+    echo "[wrapper] starting analyst service on port $PORT..." >&2
+    (cd "$PROJECT_DIR" && ANALYST_PORT="$PORT" ANALYST_NO_LLM=1 nohup python3 service.py >/tmp/analyst_service.log 2>&1 &)
+    # wait for port
+    for i in {1..30}; do
+      sleep 0.2
+      if curl -sS --fail --max-time 1 "$SERVICE_URL" >/dev/null 2>/dev/null; then break; fi
+    done
+  fi
+  echo "Analyst chat (DeepSeek proxy). Пиши вопрос, пустая строка — выход."
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && break
+    encoded=$(python3 - "$line" <<'PY' | tr -d '\n'
+import sys, urllib.parse
+q = ' '.join(sys.argv[1:])
+print(urllib.parse.quote(q))
+PY
+)
+    ans=$(python3 - "$HOST" "$PORT" "$encoded" <<'PY'
+import sys, json, urllib.request
+host, port, encoded = sys.argv[1:4]
+url = f"http://{host}:{port}/ask?q={encoded}"
+try:
+    with urllib.request.urlopen(url, timeout=60) as r:
+        raw = r.read().decode("utf-8", errors="replace")
+except Exception as e:
+    print(f"[error http] {e}")
+    sys.exit(0)
+if not raw.strip():
+    print("[error parsing response] empty body")
+    sys.exit(0)
+try:
+    data = json.loads(raw)
+    print(data.get("answer", data))
+except Exception as e:
+    print(f"[error parsing response] {e}; raw: {raw!r}")
+PY
+)
+    echo "DeepSeek> $ans"
+  done
+  exit 0
+fi
+
+# otherwise, pass-through
+exec "$REAL_OLLAMA" "$@"

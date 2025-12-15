@@ -17,6 +17,12 @@ To run the application on iPhone device/simulator:
  - Open `iosApp/iosApp.xcproject` in Xcode and run standard configuration  
  - Or use [Kotlin Multiplatform Mobile plugin](https://plugins.jetbrains.com/plugin/14936-kotlin-multiplatform-mobile) for Android Studio  
 
+### LLM на VPS (Ollama)
+- Запущенный сервер: `http://208.123.185.229:11434`
+- Модель по умолчанию: `ollama:llama3.2:1b-instruct-q4_K_M` (квантованная, уже установлена на VPS; быстрее на 2 vCPU/4 ГБ)
+- Запуск десктопа: `./gradlew :desktopApp:run` — будет использовать VPS, OpenAI ключ не нужен
+- При желании переключайтесь на другие модели в настройках чата (нужны на том же VPS).
+
 ### MCP tooling
 The `core/network` module ships with `McpToolInspector`, a helper that can connect to any MCP server which communicates via stdio and print the tools it exposes.  
 Provide the path to your MCP server entry point through the `MCP_SERVER_SCRIPT` environment variable and the desktop client will automatically run `printTools(...)` on startup.  
@@ -62,3 +68,8 @@ Switch to `listTools` if you need the raw `List<McpToolDescriptor>` for custom U
    - `longitude` (обязательно) — долгота;
    - `periods` (опционально) — сколько периодов прогноза вернуть (1..8, по умолчанию 4).
 4. Чтобы подключить сервер к нашему агенту, укажите `MCP_SERVER_SCRIPT=./mcp/weather-server/run-weather-server.sh` перед запуском десктопного клиента. После этого LLM увидит новый инструмент и сможет автоматически запрашивать прогноз по приведённой схеме (например: «Погода в Сиэтле завтра?» — модель сама подставит координаты и вызовет MCP).
+
+### Персонализация агента
+- Добавьте файл профиля по пути `~/.ai_advent/personal_agent.json` (или укажите свой путь через переменную окружения `AI_ADVENT_PROFILE_PATH` либо системное свойство JVM `ai.advent.profile.path`).
+- Формат: можно положить свободный текст или JSON со структурой, как в примере `docs/personal_agent.sample.json` (имя, тон, привычки, «избегать», интересы и шорткаты).
+- Профиль автоматически добавляется к системному промпту в чат-клиенте, чтобы ответы учитывали ваш стиль и предпочтения. После изменения файла перезапустите десктопное приложение.

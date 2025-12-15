@@ -32,6 +32,7 @@ import com.pozyalov.ai_advent_challenge.chat.model.ChatToolOption
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelector
 import com.pozyalov.ai_advent_challenge.network.mcp.ToolSelectorOption
 import com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonResult
+import com.pozyalov.ai_advent_challenge.chat.personalization.PersonalizationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -130,6 +131,7 @@ class ChatComponentImpl(
     private val tripBriefingExecutor: TripBriefingExecutor,
     private val ragExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonExecutor,
     private val embeddingIndexExecutor: com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor,
+    private val personalizationProvider: PersonalizationProvider,
     private val threadId: Long,
     private val onClose: () -> Unit
 ) : ChatComponent, ComponentContext by componentContext {
@@ -147,12 +149,15 @@ class ChatComponentImpl(
     private val reasoningOptions: List<ReasoningOption> = ReasoningCatalog.options
     private val contextLimitOptions: List<ContextLimitOption> = ContextLimitCatalog.options
 
+    private fun isConfiguredForModel(modelId: String): Boolean =
+        agent.isConfigured || LlmModelCatalog.isLocalModel(modelId)
+
     private val _model = MutableStateFlow(
         ChatComponent.Model(
             messages = emptyList(),
             input = "",
             isSending = false,
-            isConfigured = agent.isConfigured,
+            isConfigured = isConfiguredForModel(LlmModelCatalog.DefaultModelId),
             availableModels = modelOptions,
             selectedModelId = LlmModelCatalog.DefaultModelId,
             comparisonModelId = null,
@@ -209,7 +214,7 @@ class ChatComponentImpl(
         _model.update {
             it.copy(
                 input = text,
-                isConfigured = agent.isConfigured
+                isConfigured = isConfiguredForModel(it.selectedModelId)
             )
         }
     }
@@ -220,7 +225,7 @@ class ChatComponentImpl(
             current.copy(
                 selectedModelId = selected.id,
                 comparisonModelId = current.comparisonModelId?.takeUnless { it == selected.id },
-                isConfigured = agent.isConfigured,
+                isConfigured = isConfiguredForModel(selected.id),
                 isTemperatureLocked = selected.temperatureLocked,
                 lockedTemperatureValue = selected.temperature.takeIf { selected.temperatureLocked }
             )
@@ -761,12 +766,13 @@ class ChatComponentImpl(
             )
             userMessageToPersist = userMessage
             val updatedMessages = state.messages + userMessage
+            val isModelConfigured = isConfiguredForModel(selectedModel.id)
 
-            if (!agent.isConfigured) {
+            if (!isModelConfigured) {
                 val failureMessage = ConversationMessage(
                     threadId = threadId,
                     author = MessageAuthor.Agent,
-                    text = "",
+                    text = "Добавьте OpenAI API ключ или выберите локальную модель Ollama.",
                     error = ConversationError.MissingApiKey,
                     roleId = roleOption.id,
                     temperature = temperatureValue
@@ -776,7 +782,7 @@ class ChatComponentImpl(
                     messages = updatedMessages + failureMessage,
                     input = "",
                     isSending = false,
-                    isConfigured = agent.isConfigured
+                    isConfigured = isConfiguredForModel(selectedModel.id)
                 )
             }
 
@@ -791,7 +797,7 @@ class ChatComponentImpl(
                 messages = updatedMessages,
                 input = "",
                 isSending = true,
-                isConfigured = agent.isConfigured
+                isConfigured = isConfiguredForModel(selectedModel.id)
             )
         }
 
@@ -806,6 +812,7 @@ class ChatComponentImpl(
         val baseTemperature = activeTemperatureValue ?: TemperatureCatalog.default.value
         val primary = primaryModelOption ?: defaultModelOption
         val comparison = comparisonModelId?.let { id -> modelOptions.firstOrNull { it.id == id } }
+        val systemPrompt = buildSystemPrompt(rolePrompt.systemPrompt)
 
         chatLog("Prepared request history=${history.size}, paddingTokens=${resolvedContextPaddingTokens ?: 0}")
 
@@ -863,7 +870,7 @@ class ChatComponentImpl(
                         history = effectiveHistory,
                         model = modelId,
                         temperature = target.temperature,
-                        systemPrompt = rolePrompt.systemPrompt,
+                        systemPrompt = systemPrompt,
                         reasoningEffort = reasoningOption.effort
                     )
                     chatLog("agent.reply() returned, processing result...")
@@ -925,7 +932,7 @@ class ChatComponentImpl(
                 _model.update { state ->
                     state.copy(
                         isSending = false,
-                        isConfigured = agent.isConfigured
+                        isConfigured = isConfiguredForModel(state.selectedModelId)
                     )
                 }
             }
@@ -1010,7 +1017,7 @@ class ChatComponentImpl(
         _model.update { state ->
             state.copy(
                 messages = state.messages + message,
-                isConfigured = agent.isConfigured,
+                isConfigured = isConfiguredForModel(state.selectedModelId),
                 isSending = if (finalizeSending) false else state.isSending
             )
         }
@@ -1029,7 +1036,7 @@ class ChatComponentImpl(
             chatLog("Updated ${updatedMessages.size} messages, isSending will be ${if (finalizeSending) false else state.isSending}")
             state.copy(
                 messages = updatedMessages,
-                isConfigured = agent.isConfigured,
+                isConfigured = isConfiguredForModel(state.selectedModelId),
                 isSending = if (finalizeSending) false else state.isSending
             )
         }
@@ -1045,6 +1052,18 @@ class ChatComponentImpl(
         }
         val base = text?.takeIf { it.isNotBlank() } ?: "Произошла ошибка при обращении к модели."
         return prefix?.let { it + base } ?: base
+    }
+
+    private fun buildSystemPrompt(basePrompt: String): String {
+        val personalization = personalizationProvider.personalPrompt()?.trim().orEmpty()
+        if (personalization.isBlank()) return basePrompt
+        val safeBase = basePrompt.takeIf { it.isNotBlank() } ?: "Ты — персональный ассистент пользователя."
+        return buildString {
+            append(safeBase.trim())
+            append("\n\n")
+            append("Профиль пользователя (учитывай стиль, привычки, запреты в каждом ответе):\n")
+            append(personalization)
+        }
     }
 
     private fun appendPadding(

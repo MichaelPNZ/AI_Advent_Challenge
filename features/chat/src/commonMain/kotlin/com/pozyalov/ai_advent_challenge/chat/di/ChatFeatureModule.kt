@@ -23,6 +23,7 @@ import com.pozyalov.ai_advent_challenge.chat.pipeline.DocPipelineExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.TripBriefingExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor
 import com.pozyalov.ai_advent_challenge.chat.pipeline.RagComparisonExecutor
+import com.pozyalov.ai_advent_challenge.chat.personalization.PersonalizationProvider
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -43,8 +44,9 @@ fun chatFeatureModule(
     single<TripBriefingExecutor> { TripBriefingExecutor.None }
     single<com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor> { com.pozyalov.ai_advent_challenge.chat.pipeline.EmbeddingIndexExecutor.None }
     single<RagComparisonExecutor> { RagComparisonExecutor.None }
+    single<PersonalizationProvider> { PersonalizationProvider.Empty }
 
-    factory<ChatRepository> { ChatRepositoryImpl(api = get(), toolClient = get()) }
+    factory<ChatRepository> { ChatRepositoryImpl(api = get(), localApi = get(), toolClient = get()) }
     factory { GenerateChatReplyUseCase(repository = get()) }
     factory { ChatAgent(generateReply = get()) }
 
@@ -59,7 +61,8 @@ fun chatFeatureModule(
             docPipelineExecutor = get(),
             tripBriefingExecutor = get(),
             embeddingIndexExecutor = get(),
-            ragExecutor = get()
+            ragExecutor = get(),
+            personalizationProvider = get()
         )
     }
 }
@@ -74,7 +77,8 @@ class ChatComponentFactory(
     private val docPipelineExecutor: DocPipelineExecutor,
     private val tripBriefingExecutor: TripBriefingExecutor,
     private val embeddingIndexExecutor: EmbeddingIndexExecutor,
-    private val ragExecutor: RagComparisonExecutor
+    private val ragExecutor: RagComparisonExecutor,
+    private val personalizationProvider: PersonalizationProvider
 ) {
     fun create(
         componentContext: ComponentContext,
@@ -92,6 +96,7 @@ class ChatComponentFactory(
         tripBriefingExecutor = tripBriefingExecutor,
         ragExecutor = ragExecutor,
         embeddingIndexExecutor = embeddingIndexExecutor,
+        personalizationProvider = personalizationProvider,
         threadId = threadId,
         onClose = onClose
     )

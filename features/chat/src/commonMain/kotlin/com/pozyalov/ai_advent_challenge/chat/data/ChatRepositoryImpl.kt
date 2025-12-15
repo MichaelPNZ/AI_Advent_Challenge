@@ -13,6 +13,7 @@ import com.pozyalov.ai_advent_challenge.network.api.AiCompletionResult
 import com.pozyalov.ai_advent_challenge.network.api.AiCompletionUsage
 import com.pozyalov.ai_advent_challenge.network.api.AiMessage
 import com.pozyalov.ai_advent_challenge.network.api.AiRole
+import com.pozyalov.ai_advent_challenge.network.api.OllamaApi
 import com.pozyalov.ai_advent_challenge.network.mcp.TaskToolClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 class ChatRepositoryImpl(
     private val api: AiApi,
+    private val localApi: OllamaApi,
     private val toolClient: TaskToolClient,
     private val json: Json = Json {
         encodeDefaults = false
@@ -46,6 +48,7 @@ class ChatRepositoryImpl(
         reasoningEffort: String,
     ): Result<AgentReply> {
         val sanitizedHistory = history.filter { it.content.isNotBlank() }
+        val isLocalModel = LlmModelCatalog.isLocalModel(model.id)
 
         val toolPrompt = buildToolPrompt()
         val requestMessages = buildList {
@@ -66,13 +69,26 @@ class ChatRepositoryImpl(
         }
 
         println("[ChatRepo] Calling api.chatCompletion...")
-        val completionResult = api.chatCompletion(
-            messages = requestMessages,
-            model = model,
-            temperature = temperature,
-            reasoningEffort = reasoningEffort,
-            toolClient = toolClient
-        )
+        val completionResult = when {
+            isLocalModel -> localApi.chatCompletion(
+                messages = requestMessages,
+                model = model.id,
+                temperature = temperature,
+                tuning = LlmModelCatalog.tuningFor(model.id)
+            )
+
+            !api.isConfigured -> {
+                Result.failure(IllegalStateException("OpenAI API key is missing"))
+            }
+
+            else -> api.chatCompletion(
+                messages = requestMessages,
+                model = model,
+                temperature = temperature,
+                reasoningEffort = reasoningEffort,
+                toolClient = toolClient
+            )
+        }
         println("[ChatRepo] api.chatCompletion returned, mapping result...")
         return completionResult.mapCatching { result ->
             println("[ChatRepo] Inside mapCatching, parsing response...")
@@ -107,7 +123,10 @@ class ChatRepositoryImpl(
         }
 
         println("[ChatRepo] Parsing JSON...")
-        val element = parseJson(normalized)
+        val element = runCatching { parseJson(normalized) }.getOrElse { cause ->
+            println("[ChatRepo] Failed to parse JSON, falling back to plain text: ${cause.message}")
+            return fallbackStructuredResponse(normalized, cause)
+        }
         println("[ChatRepo] JSON parsed successfully, type=${element::class.simpleName}")
 
         if (element is JsonObject && element.containsKey("error")) {
@@ -122,12 +141,11 @@ class ChatRepositoryImpl(
             throw IllegalStateException(error.reason.ifBlank { error.error })
         }
 
-        if (element !is JsonObject) {
-            throw IllegalStateException("Agent response is not a JSON object")
-        }
+        val jsonObject = element as? JsonObject
+            ?: return fallbackStructuredResponse(normalized, IllegalStateException("Agent response is not a JSON object"))
 
         println("[ChatRepo] Converting to AgentPayload...")
-        val payload = element.toAgentPayload()
+        val payload = jsonObject.toAgentPayload()
         println("[ChatRepo] Converting to domain model...")
         val domain = payload.toDomain()
         println("[ChatRepo] Sanitizing response...")
@@ -206,6 +224,26 @@ class ChatRepositoryImpl(
         return body.joinToString("\n").trim()
     }
 
+    private fun fallbackStructuredResponse(raw: String, cause: Throwable?): AgentStructuredResponse {
+        val safe = raw.trim()
+        val title = safe.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+            ?.take(120)
+            ?.ifBlank { null }
+            ?: "Ответ"
+        val confidence = 0.15
+        println("[ChatRepo] Returning fallback structured response (confidence=$confidence)")
+        if (cause != null) {
+            println("[ChatRepo] Fallback reason: ${cause.message}")
+        }
+        return AgentStructuredResponse(
+            title = title,
+            summary = safe,
+            confidence = confidence
+        )
+    }
+
     private fun AgentResponsePayload.toDomain(): AgentStructuredResponse =
         AgentStructuredResponse(
             title = title,
@@ -279,6 +317,8 @@ class ChatRepositoryImpl(
             }
 
         private val RESPONSE_PROMPT: String = """
+Ты — инженер‑ассистент, который даёт прикладные, проверяемые советы (код, шаги, метрики). Всегда опирайся только на факты из истории и инструментов; если данных нет, скажи об этом и укажи, что нужно запросить.
+
 ФОРМАТ ОТВЕТА:
 - Всегда возвращай один JSON-объект в кодировке UTF-8 без дополнительного текста.
 - Структура:
@@ -288,12 +328,15 @@ class ChatRepositoryImpl(
     "confidence": число от 0 до 1
   }
 
-ПРАВИЛА:
-- `title` отражает тему ответа.
-- `answer` содержит ясное объяснение или рекомендацию без лишних вопросов пользователю.
-- `confidence` — десятичное число: 0 = нет уверенности, 1 = максимальная уверенность.
-- Если данных мало, укажи это в `answer` и снизь `confidence`.
-- Не добавляй и не удаляй поля, не используй Markdown.
+ТРЕБОВАНИЯ К ПОЛЯМ:
+- `title` отражает задачу и ключевое действие.
+- `answer` пиши по шаблону из трёх строк:
+  • "Контекст: ..." — что понял из вопроса и истории (1 короткое предложение).
+  • "Решение: ..." — конкретные шаги или ответ по сути (до 3 действий через ';').
+  • "Проверка: ..." — что проверить или какие данные нужны, если уверенность < 0.8; иначе укажи "ок".
+- `confidence` — десятичное число 0..1: чем больше неопределённость, тем меньше значение.
+- Если не хватает данных, явно укажи это в `answer` и снизь `confidence`.
+- Не добавляй и не удаляй поля, не используй Markdown, отвечай по-русски.
         """.trimIndent()
 //        private val RESPONSE_PROMPT: String = """
 //Ты — ведущий фасилитатор команды виртуальных экспертов. Для каждого запроса:

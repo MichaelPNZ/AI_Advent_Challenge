@@ -1,5 +1,6 @@
 package com.pozyalov.ai_advent_challenge.chat.model
 
+import com.pozyalov.ai_advent_challenge.network.api.OllamaTuning
 
 data class LlmModelOption(
     val id: String,
@@ -8,13 +9,31 @@ data class LlmModelOption(
     val temperature: Double,
     val temperatureLocked: Boolean = false,
     val promptPricePer1KTokensUsd: Double? = null,
-    val completionPricePer1KTokensUsd: Double? = null
+    val completionPricePer1KTokensUsd: Double? = null,
+    val ollamaTuning: OllamaTuning? = null
 )
 
 object LlmModelCatalog {
-    const val DefaultModelId: String = "gpt-5-mini"
+    const val DefaultModelId: String = "ollama:llama3.2:1b-instruct-q4_K_M"
 
     val models: List<LlmModelOption> = listOf(
+        LlmModelOption(
+            id = "ollama:llama3.2:1b-instruct-q4_K_M",
+            displayName = "Llama 3.2 1B instruct q4_K_M (Ollama на VPS)",
+            description = "VPS Ollama: `http://208.123.185.229:11434`, квантованная `llama3.2:1b-instruct-q4_K_M` для быстрого ответа на 2 vCPU.",
+            temperature = 0.55,
+            promptPricePer1KTokensUsd = null,
+            completionPricePer1KTokensUsd = null,
+            ollamaTuning = OllamaTuning(
+                // Базовый профиль под слабый VPS: умеренный контекст и короткие ответы
+                numCtx = 4096,
+                numPredict = 256,
+                topP = 0.92,
+                topK = 60,
+                repeatPenalty = 1.05,
+                temperature = 0.55
+            )
+        ),
         LlmModelOption(
             id = "gpt-5-mini",
             displayName = "GPT-5 Mini",
@@ -69,4 +88,10 @@ object LlmModelCatalog {
 
     fun firstOrDefault(modelId: String?): LlmModelOption =
         models.firstOrNull { it.id == modelId } ?: models.first { it.id == DefaultModelId }
+
+    fun isLocalModel(modelId: String?): Boolean =
+        modelId?.startsWith("ollama:", ignoreCase = true) == true
+
+    fun tuningFor(modelId: String?): OllamaTuning? =
+        models.firstOrNull { it.id == modelId }?.ollamaTuning
 }
