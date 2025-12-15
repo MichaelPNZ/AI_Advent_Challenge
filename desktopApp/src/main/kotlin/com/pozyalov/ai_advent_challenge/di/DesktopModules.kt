@@ -21,6 +21,9 @@ import com.pozyalov.ai_advent_challenge.pipeline.DesktopRagComparisonExecutor
 import com.pozyalov.ai_advent_challenge.embedding.OllamaEmbeddingClient
 import com.pozyalov.ai_advent_challenge.embedding.EmbeddingIndexService
 import com.pozyalov.ai_advent_challenge.embedding.RagComparisonService
+import com.pozyalov.ai_advent_challenge.chat.personalization.PersonalizationProvider
+import com.pozyalov.ai_advent_challenge.personalization.FilePersonalizationProvider
+import com.pozyalov.ai_advent_challenge.personalization.PersonalizationConfigLoader
 import com.pozyalov.ai_advent_challenge.reminder.ReminderNotificationPoller
 import com.pozyalov.ai_advent_challenge.summary.DailyChatSummaryPoller
 import com.pozyalov.ai_advent_challenge.review.PrReviewService
@@ -68,6 +71,9 @@ fun desktopAppModule(): Module = module {
             TaskToolClientFactory.create(config, get())
         }
     } binds arrayOf(TaskToolClient::class, ToolSelector::class)
+    single<PersonalizationProvider> {
+        FilePersonalizationProvider(PersonalizationConfigLoader.loadPrompt())
+    }
     single<AgentPollerConfig> {
         AgentPollerConfig(
             reminderIntervalSeconds = System.getProperty("ai.advent.reminder.poll.interval.seconds")?.toLongOrNull()
