@@ -157,6 +157,8 @@ fun ChatScreen(
         )
     }
 
+    var voiceBaseInput by remember { mutableStateOf<String?>(null) }
+
     if (showSettings) {
         ChatSettingsDialog(
             isDark = isDark,
@@ -389,6 +391,32 @@ fun ChatScreen(
                     ),
                     keyboardActions = KeyboardActions(onSend = { submitMessage() }),
                     enabled = !model.isSending
+                )
+
+                VoiceInputButton(
+                    enabled = !model.isSending,
+                    onRecordingStateChange = { isRecording ->
+                        voiceBaseInput = if (isRecording) model.input else null
+                    },
+                    onPartialText = { partial ->
+                        val base = voiceBaseInput ?: return@VoiceInputButton
+                        val updated = when {
+                            partial.isBlank() -> base
+                            base.isBlank() -> partial
+                            else -> base.trimEnd() + " " + partial
+                        }
+                        component.onInputChange(updated)
+                    },
+                    onResultText = { spoken ->
+                        val base = voiceBaseInput ?: model.input
+                        val updated = when {
+                            spoken.isBlank() -> base
+                            base.isBlank() -> spoken
+                            else -> base.trimEnd() + " " + spoken
+                        }
+                        component.onInputChange(updated)
+                        voiceBaseInput = null
+                    }
                 )
 
                 Button(
