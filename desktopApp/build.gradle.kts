@@ -84,6 +84,40 @@ afterEvaluate {
         }
     }
 
+    tasks.register<JavaExec>("runSpeechAgent") {
+        group = "application"
+        description = "Запустить демо связки Speech -> LLM (Vosk + Chat)"
+        classpath = sourceSets["main"].runtimeClasspath
+        mainClass.set("com.pozyalov.ai_advent_challenge.voice.SpeechAgentDemoKt")
+
+        project.findProperty("audios")?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?.split(",")
+            ?.forEach { args(it) }
+
+        project.findProperty("voskModel")?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { environment("VOSK_MODEL_PATH", it) }
+
+        // Пробрасываем ключ; если его нет, приложение завершится с ошибкой
+        System.getenv("OPENAI_API_KEY")?.let { environment("OPENAI_API_KEY", it) }
+        System.getenv("VOSK_MODEL_PATH")?.let { environment("VOSK_MODEL_PATH", it) }
+    }
+
+    tasks.register<JavaExec>("runSpeechDictation") {
+        group = "application"
+        description = "Диктовка с микрофона: Vosk STT -> LLM (текстовый вывод)"
+        classpath = sourceSets["main"].runtimeClasspath
+        mainClass.set("com.pozyalov.ai_advent_challenge.voice.MicDictationKt")
+
+        project.findProperty("voskModel")?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { environment("VOSK_MODEL_PATH", it) }
+
+        System.getenv("OPENAI_API_KEY")?.let { environment("OPENAI_API_KEY", it) }
+        System.getenv("VOSK_MODEL_PATH")?.let { environment("VOSK_MODEL_PATH", it) }
+    }
+
     tasks.register<JavaExec>("runSupportAssistant") {
         group = "application"
         description = "Запустить ассистента поддержки с RAG и MCP по тикетам"

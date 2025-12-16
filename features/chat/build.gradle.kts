@@ -49,6 +49,7 @@ kotlin {
 
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
+            implementation(libs.vosk)
         }
 
         iosMain.dependencies { }

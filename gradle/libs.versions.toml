@@ -29,6 +29,7 @@ filekit = "0.8.0"
 okio = "3.9.0"
 mcp-kotlin = "0.7.7"
 slf4j = "2.0.9"
+vosk = "0.3.45"
 
 [libraries]
 
@@ -75,6 +76,7 @@ mcpKotlinClient = { module = "io.modelcontextprotocol:kotlin-sdk-client", versio
 mcpKotlinCore = { module = "io.modelcontextprotocol:kotlin-sdk-core", version.ref = "mcp-kotlin" }
 mcpKotlinServer = { module = "io.modelcontextprotocol:kotlin-sdk-server", version.ref = "mcp-kotlin" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
+vosk = { module = "com.alphacephei:vosk", version.ref = "vosk" }
 
 [plugins]
 
